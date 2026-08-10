@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: risk-notification-mongo
+    restart: unless-stopped
+    # Exposing 27017 is convenient for local testing/inspection with a GUI
+    # client, but should NOT be done in production - Mongo should only be
+    # reachable from the backend service on the internal Docker network.
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build: .
+    container_name: risk-notification-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: Risk Notification Backend
+      APP_ENV: development
+      HOST: 0.0.0.0
+      PORT: 8000
+      MONGODB_URL: mongodb://mongo:27017
+      MONGODB_DB_NAME: notifications_db
+      N8N_NOTIFICATION_WEBHOOK_URL: ${N8N_NOTIFICATION_WEBHOOK_URL:-https://example.n8n.cloud/webhook/teams-notification}
+      N8N_ACTION_WEBHOOK_URL: ${N8N_ACTION_WEBHOOK_URL:-https://example.n8n.cloud/webhook/teams-action}
+      N8N_TIMEOUT_SECONDS: 15
+      LOG_LEVEL: INFO
+      CORS_ORIGINS: http://localhost:3000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY_ENABLED: ${INTERNAL_API_KEY_ENABLED:-false}
+
+volumes:
+  mongo_data:
