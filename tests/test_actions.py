@@ -11,9 +11,11 @@ async def test_view_details_action(async_client, sample_risk_payload):
     )
     assert response.status_code == 200
     body = response.json()
+    assert body["success"] is True
     assert body["actionKey"] == "view_details"
     assert body["cardType"] == "risk_details"
-    assert body["data"]["fundingShortfall"] == 210000
+    assert body["data"]["details"]["underlyingExposure"]
+    assert "mitigationPlan" not in body["data"]
 
 
 @pytest.mark.asyncio
@@ -26,9 +28,52 @@ async def test_mitigation_plan_action(async_client, sample_risk_payload):
     )
     assert response.status_code == 200
     body = response.json()
+    assert body["success"] is True
     assert body["actionKey"] == "mitigation_plan"
     assert body["cardType"] == "mitigation_plan"
-    assert len(body["data"]["steps"]) == 1
+    assert len(body["data"]["mitigationPlan"]["steps"]) == 1
+    assert "details" not in body["data"]
+
+
+@pytest.mark.asyncio
+async def test_view_details_action_defaults_missing_details(async_client, sample_risk_payload):
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    from app.database import mongo_manager
+
+    await mongo_manager.database.risks.update_one(
+        {"riskId": "RSK-OP-0821"}, {"$unset": {"details": ""}}
+    )
+
+    response = await async_client.post(
+        "/api/risk-actions/execute",
+        json={"riskId": "RSK-OP-0821", "actionKey": "view_details"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["details"] == {
+        "underlyingExposure": [],
+        "impact": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_mitigation_action_defaults_missing_plan(async_client, sample_risk_payload):
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    from app.database import mongo_manager
+
+    await mongo_manager.database.risks.update_one(
+        {"riskId": "RSK-OP-0821"}, {"$unset": {"mitigationPlan": ""}}
+    )
+
+    response = await async_client.post(
+        "/api/risk-actions/execute",
+        json={"riskId": "RSK-OP-0821", "actionKey": "mitigation_plan"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["mitigationPlan"] == {
+        "summary": None,
+        "steps": [],
+        "lastUpdated": None,
+    }
 
 
 @pytest.mark.asyncio

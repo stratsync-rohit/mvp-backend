@@ -1,9 +1,11 @@
 """Pydantic v2 schemas for the risk-actions execution flow."""
 from typing import Any, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-from app.models.risk import ActionKey
+from app.models.risk import ActionKey, Severity
+from app.schemas.common import Vessel
+from app.schemas.risk import MitigationPlan, RiskDetails
 
 
 class AssignActionPayload(BaseModel):
@@ -31,12 +33,28 @@ class RiskActionRequest(BaseModel):
         return self
 
 
+class RiskDetailsActionData(BaseModel):
+    title: str
+    severity: Severity
+    vessel: Vessel
+    summary: str
+    details: RiskDetails = Field(default_factory=RiskDetails)
+
+
+class MitigationPlanActionData(BaseModel):
+    title: str
+    severity: Severity
+    vessel: Vessel
+    mitigationPlan: MitigationPlan = Field(default_factory=MitigationPlan)
+
+
 class RiskActionResponse(BaseModel):
-    """Generic envelope for view_details / mitigation_plan style responses."""
+    """Standard envelope for read-only card actions."""
+    success: bool = True
     riskId: str
     actionKey: ActionKey
     cardType: str
-    data: dict[str, Any]
+    data: RiskDetailsActionData | MitigationPlanActionData
 
 
 class RiskActionAckResponse(BaseModel):

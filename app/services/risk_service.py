@@ -82,14 +82,44 @@ class RiskService:
             "impact": details.get("impact", []),
         }
 
+    async def get_details_action_payload(self, risk_id: str) -> dict[str, Any]:
+        """Projection used only by the view_details action card."""
+        risk = await self.get_risk(risk_id)
+        details = risk.get("details", {}) or {}
+        return {
+            "title": risk["title"],
+            "severity": risk["severity"],
+            "vessel": risk["vessel"],
+            "summary": risk["summary"],
+            "details": {
+                "underlyingExposure": details.get("underlyingExposure", []),
+                "impact": details.get("impact", []),
+            },
+        }
+
     async def get_mitigation_plan_payload(self, risk_id: str) -> dict[str, Any]:
         risk = await self.get_risk(risk_id)
         plan = risk.get("mitigationPlan", {}) or {}
         return {
             "riskId": risk["riskId"],
             "title": risk["title"],
-            "summary": plan.get("summary", ""),
+            "summary": plan.get("summary") or "",
             "steps": plan.get("steps", []),
+        }
+
+    async def get_mitigation_plan_action_payload(self, risk_id: str) -> dict[str, Any]:
+        """Projection used only by the mitigation_plan action card."""
+        risk = await self.get_risk(risk_id)
+        plan = risk.get("mitigationPlan", {}) or {}
+        return {
+            "title": risk["title"],
+            "severity": risk["severity"],
+            "vessel": risk["vessel"],
+            "mitigationPlan": {
+                "summary": plan.get("summary"),
+                "steps": plan.get("steps", []),
+                "lastUpdated": plan.get("lastUpdated"),
+            },
         }
 
     async def set_tracking(self, risk_id: str, tracked_by: Optional[str]) -> dict[str, Any]:

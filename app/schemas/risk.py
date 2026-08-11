@@ -32,8 +32,9 @@ class MitigationStep(BaseModel):
 
 
 class MitigationPlan(BaseModel):
-    summary: str
+    summary: Optional[str] = None
     steps: list[MitigationStep] = Field(default_factory=list)
+    lastUpdated: Optional[datetime] = None
 
 
 class Tracking(BaseModel):

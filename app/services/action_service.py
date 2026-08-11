@@ -33,8 +33,9 @@ class ActionService:
     # -- Handlers -----------------------------------------------------------
 
     async def _handle_view_details(self, request: RiskActionRequest) -> dict[str, Any]:
-        data = await self._risk_service.get_details_payload(request.riskId)
+        data = await self._risk_service.get_details_action_payload(request.riskId)
         return {
+            "success": True,
             "riskId": request.riskId,
             "actionKey": ActionKey.VIEW_DETAILS.value,
             "cardType": "risk_details",
@@ -42,8 +43,9 @@ class ActionService:
         }
 
     async def _handle_mitigation_plan(self, request: RiskActionRequest) -> dict[str, Any]:
-        data = await self._risk_service.get_mitigation_plan_payload(request.riskId)
+        data = await self._risk_service.get_mitigation_plan_action_payload(request.riskId)
         return {
+            "success": True,
             "riskId": request.riskId,
             "actionKey": ActionKey.MITIGATION_PLAN.value,
             "cardType": "mitigation_plan",
