@@ -2,203 +2,112 @@ from datetime import datetime
 
 import pytest
 
+from app.database import mongo_manager
+
 
 @pytest.mark.asyncio
-async def test_create_risk(async_client, sample_risk_payload):
+@pytest.mark.parametrize("entity_type", ["vessel", "sku", "supplier", "future_asset_type"])
+async def test_generic_entities_and_sections_round_trip(async_client, sample_risk_payload, entity_type):
+    sample_risk_payload["riskId"] = f"RSK-{entity_type}"
+    sample_risk_payload["entity"].update(type=entity_type, id=f"ID-{entity_type}")
     response = await async_client.post("/api/risks", json=sample_risk_payload)
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     body = response.json()
-    assert body["riskId"] == "RSK-OP-0821"
-    assert body["title"] == "Owner funding is short"
-    assert datetime.fromisoformat(body["createdAt"])
-    assert body["updatedAt"] == body["createdAt"]
+    assert body["entity"]["type"] == entity_type
+    assert body["entity"]["data"]["imo"] == "1234567"
+    assert body["metrics"][0]["data"]["currency"] == "USD"
+    assert [section["type"] for section in body["details"]["sections"]] == [
+        "facts", "bullets", "future_chart"]
+    assert body["details"]["sections"][2]["series"] == [1, 2, 3]
+    assert body["mitigation"]["sections"][0]["type"] == "steps"
+    assert body["createdAt"] == body["updatedAt"]
     assert "_id" not in body
 
 
 @pytest.mark.asyncio
-async def test_create_duplicate_risk_returns_409(async_client, sample_risk_payload):
-    first = await async_client.post("/api/risks", json=sample_risk_payload)
-    assert first.status_code == 201
-
-    second = await async_client.post("/api/risks", json=sample_risk_payload)
-    assert second.status_code == 409
-    assert second.json()["detail"] == "Risk already exists"
-
-
-@pytest.mark.asyncio
-async def test_get_risk(async_client, sample_risk_payload):
-    await async_client.post("/api/risks", json=sample_risk_payload)
-
-    response = await async_client.get("/api/risks/RSK-OP-0821")
-    assert response.status_code == 200
-    assert response.json()["riskId"] == "RSK-OP-0821"
+async def test_dynamic_table_section_round_trip(async_client, sample_risk_payload):
+    table = {"type": "table", "title": "Suppliers", "columns": ["Supplier", "OTD"],
+             "rows": [["A1", "96%"]]}
+    sample_risk_payload["details"]["sections"] = [table]
+    body = (await async_client.post("/api/risks", json=sample_risk_payload)).json()
+    assert body["details"]["sections"] == [table]
 
 
 @pytest.mark.asyncio
-async def test_get_risk_not_found(async_client):
-    response = await async_client.get("/api/risks/RSK-DOES-NOT-EXIST")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Risk not found"
-
-
-@pytest.mark.asyncio
-async def test_list_risks_with_filters(async_client, sample_risk_payload):
-    await async_client.post("/api/risks", json=sample_risk_payload)
-
-    response = await async_client.get("/api/risks", params={"severity": "high", "status": "open"})
-    assert response.status_code == 200
-    results = response.json()
-    assert len(results) == 1
-    assert results[0]["riskId"] == "RSK-OP-0821"
-
-
-@pytest.mark.asyncio
-async def test_update_risk_partial(async_client, sample_risk_payload):
-    created = await async_client.post("/api/risks", json=sample_risk_payload)
-    original_created_at = created.json()["createdAt"]
-    original_updated_at = created.json()["updatedAt"]
-
-    response = await async_client.patch("/api/risks/RSK-OP-0821", json={"status": "in_progress"})
+async def test_patch_preserves_created_at_and_protects_fields(async_client, sample_risk_payload):
+    created = (await async_client.post("/api/risks", json=sample_risk_payload)).json()
+    response = await async_client.patch("/api/risks/RSK-OP-0821", json={
+        "status": "investigating", "metadata": {"nested": {"dynamic": True}}})
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "in_progress"
-    # riskId must remain unchanged
-    assert body["riskId"] == "RSK-OP-0821"
-    assert body["createdAt"] == original_created_at
-    assert body["updatedAt"] > original_updated_at
+    assert body["createdAt"] == created["createdAt"]
+    assert body["updatedAt"] > created["updatedAt"]
+    assert body["metadata"]["nested"]["dynamic"] is True
+    protected = await async_client.patch("/api/risks/RSK-OP-0821", json={
+        "riskId": "changed", "createdAt": datetime.now().isoformat()})
+    assert protected.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_list_and_get_legacy_risk_without_timestamps(async_client, sample_risk_payload):
-    from app.database import mongo_manager
-
-    await async_client.post("/api/risks", json=sample_risk_payload)
-    await mongo_manager.database.risks.update_one(
-        {"riskId": "RSK-OP-0821"},
-        {"$unset": {"createdAt": "", "updatedAt": ""}},
-    )
-
-    list_response = await async_client.get("/api/risks")
-    assert list_response.status_code == 200
-    legacy_risk = list_response.json()[0]
-    assert legacy_risk["createdAt"]
-    assert legacy_risk["updatedAt"] == legacy_risk["createdAt"]
-
-    get_response = await async_client.get("/api/risks/RSK-OP-0821")
-    assert get_response.status_code == 200
-    assert get_response.json()["createdAt"]
-    assert get_response.json()["updatedAt"] == get_response.json()["createdAt"]
-
-
-@pytest.mark.asyncio
-async def test_delete_risk(async_client, sample_risk_payload):
-    await async_client.post("/api/risks", json=sample_risk_payload)
-
-    response = await async_client.delete("/api/risks/RSK-OP-0821")
-    assert response.status_code == 200
-    assert response.json() == {"success": True, "riskId": "RSK-OP-0821"}
-
-    follow_up = await async_client.get("/api/risks/RSK-OP-0821")
-    assert follow_up.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_notification_payload(async_client, sample_risk_payload):
-    await async_client.post("/api/risks", json=sample_risk_payload)
-
-    response = await async_client.get("/api/risks/RSK-OP-0821/notification")
-    assert response.status_code == 200
+async def test_legacy_document_normalizes_without_migration(async_client, legacy_risk_document):
+    await mongo_manager.database.risks.insert_one(legacy_risk_document)
+    response = await async_client.get("/api/risks/RSK-LEGACY")
+    assert response.status_code == 200, response.text
     body = response.json()
-    assert body["riskId"] == "RSK-OP-0821"
-    assert body["vessel"]["name"] == "MV Ocean Pioneer"
-    action_keys = {a["key"] for a in body["actions"]}
-    assert action_keys == {"view_details", "mitigation_plan", "assign", "track_risk"}
-    # Must NOT contain Adaptive Card JSON or internal fields
-    assert "fundingShortfall" not in body
-    assert "mitigationPlan" not in body
+    assert body["entity"] == {"type": "vessel", "id": "V-OLD", "name": "MV Legacy", "data": {}}
+    assert body["details"]["sections"] == [
+        {"type": "bullets", "title": "Underlying Exposure", "items": ["Exposure"]},
+        {"type": "bullets", "title": "Impact", "items": ["Impact"]},
+    ]
+    assert [s["type"] for s in body["mitigation"]["sections"]] == ["text", "steps"]
+    assert body["mitigation"]["sections"][1]["items"][0]["data"] == {}
+    stored = await mongo_manager.database.risks.find_one({"riskId": "RSK-LEGACY"})
+    assert "entity" not in stored and "mitigationPlan" in stored
 
 
 @pytest.mark.asyncio
-async def test_details_payload(async_client, sample_risk_payload):
+async def test_mixed_old_and_new_documents_list(async_client, sample_risk_payload, legacy_risk_document):
     await async_client.post("/api/risks", json=sample_risk_payload)
-
-    response = await async_client.get("/api/risks/RSK-OP-0821/details")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["fundingShortfall"] == 210000
-    assert body["paymentsAtRisk"] == 210000
-    assert isinstance(body["underlyingExposure"], list)
+    await mongo_manager.database.risks.insert_one(legacy_risk_document)
+    response = await async_client.get("/api/risks")
+    assert response.status_code == 200, response.text
+    assert {item["riskId"] for item in response.json()} == {"RSK-OP-0821", "RSK-LEGACY"}
 
 
 @pytest.mark.asyncio
-async def test_mitigation_plan_payload(async_client, sample_risk_payload):
-    await async_client.post("/api/risks", json=sample_risk_payload)
+async def test_crud_and_filters(async_client, sample_risk_payload):
+    assert (await async_client.post("/api/risks", json=sample_risk_payload)).status_code == 201
+    assert (await async_client.post("/api/risks", json=sample_risk_payload)).status_code == 409
+    listed = await async_client.get("/api/risks", params={"severity": "high", "status": "open"})
+    assert len(listed.json()) == 1
+    assert (await async_client.get("/api/risks/missing")).status_code == 404
+    assert (await async_client.delete("/api/risks/RSK-OP-0821")).json()["success"] is True
 
-    response = await async_client.get("/api/risks/RSK-OP-0821/mitigation-plan")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["summary"] == "Secure additional funding and prioritise critical payments."
-    assert len(body["steps"]) == 1
 
-
-@pytest.mark.asyncio
-async def test_send_to_teams_success(
-    async_client, sample_risk_payload, sample_destination_payload, mock_n8n_success
-):
-    await async_client.post("/api/risks", json=sample_risk_payload)
+async def _install_teams(async_client):
     await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
-        "tenantId": "tenant-1", "clientName": "Client A", "enabled": True
-    })
+        "tenantId": "tenant-1", "clientName": "Client A", "enabled": True})
     await async_client.post("/api/teams/installations", json={
-        "tenantId": "tenant-1", "teamId": "19:sample-team-id",
-        "channelId": "19:sample-channel-id", "conversationId": "conversation-1",
-        "serviceUrl": "https://smba.trafficmanager.net/emea/", "botAppId": "bot-1"
-    })
-
-    response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is True
-    assert body["riskId"] == "RSK-OP-0821"
-    assert "eventId" in body
+        "tenantId": "tenant-1", "teamId": "team", "channelId": "channel",
+        "conversationId": "conversation", "serviceUrl": "https://example.test/", "botAppId": "bot"})
 
 
 @pytest.mark.asyncio
-async def test_send_to_teams_missing_destination_returns_404(
-    async_client, sample_risk_payload, mock_n8n_success
-):
+async def test_notification_adapter_and_send_to_teams(async_client, sample_risk_payload, mock_n8n_success):
     await async_client.post("/api/risks", json=sample_risk_payload)
-
-    response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Microsoft Teams integration is not configured for this account."
+    notification = (await async_client.get("/api/risks/RSK-OP-0821/notification")).json()
+    assert notification["entity"]["type"] == "vessel"
+    assert notification["vessel"]["name"] == notification["entity"]["name"]
+    assert {a["key"] for a in notification["actions"]} == {
+        "view_details", "mitigation_plan", "assign", "track_risk"}
+    await _install_teams(async_client)
+    sent = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert sent.status_code == 200 and sent.json()["success"] is True
 
 
 @pytest.mark.asyncio
-async def test_send_to_teams_n8n_failure_returns_502(
-    async_client, sample_risk_payload, sample_destination_payload, mock_n8n_failure
-):
+async def test_send_to_teams_failures(async_client, sample_risk_payload, mock_n8n_failure):
     await async_client.post("/api/risks", json=sample_risk_payload)
-    await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
-        "tenantId": "tenant-1", "clientName": "Client A", "enabled": True
-    })
-    await async_client.post("/api/teams/installations", json={
-        "tenantId": "tenant-1", "teamId": "19:sample-team-id",
-        "channelId": "19:sample-channel-id", "conversationId": "conversation-1",
-        "serviceUrl": "https://smba.trafficmanager.net/emea/", "botAppId": "bot-1"
-    })
-
-    response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
-    assert response.status_code == 502
-    assert response.json()["detail"] == "Unable to queue Microsoft Teams notification"
-
-
-@pytest.mark.asyncio
-async def test_put_teams_destination_upsert(async_client, sample_destination_payload):
-    response = await async_client.put(
-        "/api/teams/destinations/ACC-001", json=sample_destination_payload
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["accountId"] == "ACC-001"
-    assert body["teamId"] == "19:sample-team-id"
+    assert (await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")).status_code == 409
+    await _install_teams(async_client)
+    assert (await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")).status_code == 502

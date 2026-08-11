@@ -11,11 +11,10 @@ from fastapi import APIRouter, Depends, Header, Query, status
 from app.dependencies import get_notification_service, get_risk_service
 from app.schemas.common import DeleteRiskResponse
 from app.schemas.risk import (
-    MitigationPlanResponse,
     RiskCreate,
-    RiskDetailsResponse,
     RiskNotificationResponse,
     RiskResponse,
+    RiskSectionsResponse,
     RiskUpdate,
 )
 from app.schemas.teams import SendToTeamsRequest, SendToTeamsResponse
@@ -109,7 +108,7 @@ async def get_notification_payload(riskId: str, service: RiskServiceDep) -> dict
 
 @router.get(
     "/{riskId}/details",
-    response_model=RiskDetailsResponse,
+    response_model=RiskSectionsResponse,
     summary="View Details payload",
     description="Business data backing the Teams 'View Details' button.",
 )
@@ -119,7 +118,7 @@ async def get_details(riskId: str, service: RiskServiceDep) -> dict:
 
 @router.get(
     "/{riskId}/mitigation-plan",
-    response_model=MitigationPlanResponse,
+    response_model=RiskSectionsResponse,
     summary="Mitigation Plan payload",
     description="Business data backing the Teams 'Mitigation Plan' button.",
 )

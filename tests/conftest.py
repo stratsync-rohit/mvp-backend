@@ -1,11 +1,3 @@
-"""
-Shared pytest fixtures.
-
-We use `mongomock-motor` to provide an in-memory Motor-compatible MongoDB
-so tests don't require a real MongoDB instance. The n8n service is
-monkeypatched so tests never make real network calls.
-"""
-import asyncio
 from typing import AsyncGenerator
 
 import pytest
@@ -14,94 +6,80 @@ from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
 
 from app.config import get_settings
-from app.database import mongo_manager, create_indexes
+from app.database import create_indexes, mongo_manager
 from app.main import app
 from app.services.n8n_service import N8nService
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def mock_mongo() -> AsyncGenerator[None, None]:
-    """Replace the real Mongo client/database with an in-memory mock for every test."""
-    settings = get_settings()
     client = AsyncMongoMockClient()
     mongo_manager.client = client
-    mongo_manager.database = client[settings.mongodb_db_name]
-
+    mongo_manager.database = client[get_settings().mongodb_db_name]
     await create_indexes()
-
     yield
-
     mongo_manager.client = None
     mongo_manager.database = None
 
 
 @pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         yield client
 
 
 @pytest.fixture
 def sample_risk_payload() -> dict:
     return {
-        "riskId": "RSK-OP-0821",
-        "title": "Owner funding is short",
-        "vessel": {"id": "V-OP-2417", "name": "MV Ocean Pioneer"},
-        "accountId": "ACC-001",
-        "severity": "high",
-        "summary": "The owner needs to send US$210,000 more by 15 August 2026.",
-        "fundingShortfall": 210000,
-        "paymentsAtRisk": 210000,
-        "deadline": "2026-08-15",
-        "accountRisk": "High",
-        "status": "open",
-        "details": {
-            "underlyingExposure": ["Cash in hand plus expected owner funding is less than required."],
-            "impact": ["Suppliers and crew may be paid late."],
-        },
-        "mitigationPlan": {
-            "summary": "Secure additional funding and prioritise critical payments.",
-            "steps": [
-                {
-                    "step": 1,
-                    "title": "Check the 30-day cash need",
-                    "description": "Calculate all critical cash requirements.",
-                    "owner": "Fleet Finance Manager",
-                    "status": "pending",
-                }
-            ],
-        },
+        "riskId": "RSK-OP-0821", "accountId": "ACC-001",
+        "title": "Owner funding is short", "severity": "high", "status": "open",
+        "summary": "Additional funding is needed.",
+        "entity": {"type": "vessel", "id": "V-2417", "name": "MV Ocean Pioneer",
+                   "data": {"imo": "1234567"}},
+        "metrics": [{"key": "shortfall", "label": "Funding Shortfall", "value": 210000,
+                     "status": "critical", "data": {"currency": "USD"}}],
+        "details": {"sections": [
+            {"type": "facts", "title": "Risk Details", "items": [{"label": "Exposure", "value": "$210,000"}]},
+            {"type": "bullets", "title": "Impact", "items": ["Late supplier payments"]},
+            {"type": "future_chart", "title": "Forecast", "series": [1, 2, 3]},
+        ]},
+        "mitigation": {"sections": [{"type": "steps", "title": "Action Plan", "items": [
+            {"title": "Request funding", "description": "Contact owner", "owner": "Finance",
+             "status": "pending", "data": {"priority": 1}}
+        ]}]},
+        "metadata": {"source": "rrm"}, "extensions": {"deadline": "2026-08-15"},
     }
 
 
 @pytest.fixture
-def sample_destination_payload() -> dict:
+def legacy_risk_document() -> dict:
     return {
-        "teamId": "19:sample-team-id",
-        "channelId": "19:sample-channel-id",
-        "teamName": "Operations",
-        "channelName": "Risk Alerts",
-        "enabled": True,
+        "riskId": "RSK-LEGACY", "accountId": "ACC-001", "title": "Legacy risk",
+        "severity": "high", "status": "open", "summary": "Old document",
+        "vessel": {"id": "V-OLD", "name": "MV Legacy"}, "fundingShortfall": 10,
+        "paymentsAtRisk": 20, "deadline": "2026-08-15", "accountRisk": "High",
+        "details": {"underlyingExposure": ["Exposure"], "impact": ["Impact"]},
+        "mitigationPlan": {"summary": "Act now", "steps": [{"step": 1, "title": "Do it",
+            "description": "Now", "owner": "Ops", "status": "pending"}]},
     }
 
 
 @pytest.fixture
 def mock_n8n_success(monkeypatch):
-    """Patch N8nService.trigger_webhook to succeed without a real HTTP call."""
-
-    async def fake_trigger_webhook(self, url, payload, event_id):
+    async def trigger(self, url, payload, event_id):
         return {"status": "received", "eventId": event_id}
-
-    monkeypatch.setattr(N8nService, "trigger_webhook", fake_trigger_webhook)
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
 
 
 @pytest.fixture
 def mock_n8n_failure(monkeypatch):
-    """Patch N8nService.trigger_webhook to simulate an n8n delivery failure."""
     from app.services.n8n_service import N8nDeliveryException
-
-    async def fake_trigger_webhook(self, url, payload, event_id):
+    async def trigger(self, url, payload, event_id):
         raise N8nDeliveryException("simulated network failure")
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
 
-    monkeypatch.setattr(N8nService, "trigger_webhook", fake_trigger_webhook)
+
+@pytest.fixture
+def sample_destination_payload() -> dict:
+    return {"teamId": "19:sample-team-id", "channelId": "19:sample-channel-id",
+            "teamName": "Operations", "channelName": "Risk Alerts", "enabled": True}

@@ -1,147 +1,107 @@
-"""
-Pydantic v2 schemas for the Risk resource.
-
-Money values use `int` (whole USD units) per project decision - this keeps
-MongoDB serialization simple while still being safe for the amounts
-involved in this domain.
-"""
+"""Strict risk envelope with extensible, JSON-safe business content."""
 from datetime import date, datetime
-from typing import Optional
+from typing import Any
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.risk import Severity, RiskStatus, StepStatus
-from app.schemas.common import Vessel, ActionButton
-
-
-# ---------------------------------------------------------------------------
-# Nested building blocks
-# ---------------------------------------------------------------------------
-
-class RiskDetails(BaseModel):
-    underlyingExposure: list[str] = Field(default_factory=list)
-    impact: list[str] = Field(default_factory=list)
+from app.schemas.common import ActionButton, Vessel
 
 
-class MitigationStep(BaseModel):
-    step: int
-    title: str
-    description: str
-    owner: str
-    status: StepStatus = StepStatus.PENDING
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
-class MitigationPlan(BaseModel):
-    summary: Optional[str] = None
-    steps: list[MitigationStep] = Field(default_factory=list)
-    lastUpdated: Optional[datetime] = None
+class Entity(StrictModel):
+    type: str
+    id: str
+    name: str
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
-class Tracking(BaseModel):
+class Metric(StrictModel):
+    key: str
+    label: str
+    value: Any
+    status: str | None = None
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class DynamicSection(BaseModel):
+    """Known section identity plus arbitrary future section-specific fields."""
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    title: str | None = None
+
+
+class SectionCollection(StrictModel):
+    sections: list[DynamicSection] = Field(default_factory=list)
+
+
+class Tracking(StrictModel):
     enabled: bool = False
-    trackedBy: Optional[str] = None
-    trackedAt: Optional[datetime] = None
+    trackedBy: str | None = None
+    trackedAt: datetime | None = None
 
 
-class Assignment(BaseModel):
-    assignedTo: Optional[str] = None
-    assignedBy: Optional[str] = None
-    assignedAt: Optional[datetime] = None
+class Assignment(StrictModel):
+    assignedTo: str | None = None
+    assignedBy: str | None = None
+    assignedAt: datetime | None = None
 
 
-# ---------------------------------------------------------------------------
-# Create / Update
-# ---------------------------------------------------------------------------
-
-class RiskCreate(BaseModel):
-    riskId: str = Field(..., description="Unique business identifier, e.g. RSK-OP-0821")
-    title: str
-    vessel: Vessel
+class RiskCreate(StrictModel):
+    riskId: str
     accountId: str
-    severity: Severity
-    summary: str
-    fundingShortfall: int = 0
-    paymentsAtRisk: int = 0
-    deadline: date
-    accountRisk: str = "Medium"
-    status: RiskStatus = RiskStatus.OPEN
-    details: RiskDetails = Field(default_factory=RiskDetails)
-    mitigationPlan: MitigationPlan
+    title: str
+    severity: str
+    status: str = "open"
+    summary: str | None = None
+    entity: Entity
+    metrics: list[Metric] = Field(default_factory=list)
+    details: SectionCollection = Field(default_factory=SectionCollection)
+    mitigation: SectionCollection = Field(default_factory=SectionCollection)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    extensions: dict[str, Any] = Field(default_factory=dict)
     tracking: Tracking = Field(default_factory=Tracking)
     assignment: Assignment = Field(default_factory=Assignment)
 
 
-class RiskUpdate(BaseModel):
-    """All fields optional to support PATCH-style partial updates.
-
-    riskId is intentionally NOT included here - it must never change.
-    """
-    title: Optional[str] = None
-    vessel: Optional[Vessel] = None
-    accountId: Optional[str] = None
-    severity: Optional[Severity] = None
-    summary: Optional[str] = None
-    fundingShortfall: Optional[int] = None
-    paymentsAtRisk: Optional[int] = None
-    deadline: Optional[date] = None
-    accountRisk: Optional[str] = None
-    status: Optional[RiskStatus] = None
-    details: Optional[RiskDetails] = None
-    mitigationPlan: Optional[MitigationPlan] = None
-    tracking: Optional[Tracking] = None
-    assignment: Optional[Assignment] = None
+class RiskUpdate(StrictModel):
+    """PATCH fields; riskId/createdAt/updatedAt are deliberately unavailable."""
+    accountId: str | None = None
+    title: str | None = None
+    severity: str | None = None
+    status: str | None = None
+    summary: str | None = None
+    entity: Entity | None = None
+    metrics: list[Metric] | None = None
+    details: SectionCollection | None = None
+    mitigation: SectionCollection | None = None
+    metadata: dict[str, Any] | None = None
+    extensions: dict[str, Any] | None = None
+    tracking: Tracking | None = None
+    assignment: Assignment | None = None
 
 
-# ---------------------------------------------------------------------------
-# Responses
-# ---------------------------------------------------------------------------
-
-class RiskResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    riskId: str
-    title: str
-    vessel: Vessel
-    accountId: str
-    severity: Severity
-    summary: str
-    fundingShortfall: int
-    paymentsAtRisk: int
-    deadline: date
-    accountRisk: str
-    status: RiskStatus
-    details: RiskDetails
-    mitigationPlan: MitigationPlan
-    tracking: Tracking
-    assignment: Assignment
+class RiskResponse(RiskCreate):
     createdAt: datetime
     updatedAt: datetime
 
 
-class RiskNotificationResponse(BaseModel):
-    """Clean business payload used for the initial Teams notification."""
+class RiskNotificationResponse(StrictModel):
+    """Generic notification with temporary fields consumed by the legacy bot."""
     riskId: str
     title: str
-    vessel: Vessel
-    severity: Severity
-    summary: str
-    deadline: date
+    entity: Entity
+    severity: str
+    summary: str | None = None
     actions: list[ActionButton]
+    vessel: Vessel | None = None
+    deadline: date | None = None
 
 
-class RiskDetailsResponse(BaseModel):
+class RiskSectionsResponse(StrictModel):
     riskId: str
     title: str
-    fundingShortfall: int
-    paymentsAtRisk: int
-    deadline: date
-    accountRisk: str
-    underlyingExposure: list[str]
-    impact: list[str]
-
-
-class MitigationPlanResponse(BaseModel):
-    riskId: str
-    title: str
-    summary: str
-    steps: list[MitigationStep]
+    sections: list[DynamicSection] = Field(default_factory=list)

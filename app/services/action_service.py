@@ -38,7 +38,7 @@ class ActionService:
             "success": True,
             "riskId": request.riskId,
             "actionKey": ActionKey.VIEW_DETAILS.value,
-            "cardType": "risk_details",
+            "cardType": "dynamic_card",
             "data": data,
         }
 
@@ -48,7 +48,7 @@ class ActionService:
             "success": True,
             "riskId": request.riskId,
             "actionKey": ActionKey.MITIGATION_PLAN.value,
-            "cardType": "mitigation_plan",
+            "cardType": "dynamic_card",
             "data": data,
         }
 

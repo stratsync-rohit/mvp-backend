@@ -8,6 +8,7 @@ from app.exceptions.handlers import RiskAlreadyExistsError, RiskNotFoundError
 from app.models.risk import DEFAULT_ACTIONS
 from app.repositories.risk_repository import RiskRepository
 from app.schemas.risk import RiskCreate, RiskUpdate
+from app.services.risk_normalizer import normalize_risk_document
 
 
 class RiskService:
@@ -20,7 +21,7 @@ class RiskService:
 
         doc = payload.model_dump(mode="json")
         # Store deadline as ISO date string, matching the example doc shape.
-        return await self._repo.create(doc)
+        return normalize_risk_document(await self._repo.create(doc))
 
     async def list_risks(
         self,
@@ -30,15 +31,16 @@ class RiskService:
         limit: int = 50,
         skip: int = 0,
     ) -> list[dict[str, Any]]:
-        return await self._repo.list(
+        documents = await self._repo.list(
             severity=severity, status=status, account_id=account_id, limit=limit, skip=skip
         )
+        return [normalize_risk_document(document) for document in documents]
 
     async def get_risk(self, risk_id: str) -> dict[str, Any]:
         risk = await self._repo.get_by_risk_id(risk_id)
         if not risk:
             raise RiskNotFoundError(risk_id)
-        return risk
+        return normalize_risk_document(risk)
 
     async def update_risk(self, risk_id: str, payload: RiskUpdate) -> dict[str, Any]:
         # Ensure it exists first so we can return a clean 404.
@@ -48,7 +50,7 @@ class RiskService:
         updated = await self._repo.update(risk_id, update_fields)
         if not updated:
             raise RiskNotFoundError(risk_id)
-        return updated
+        return normalize_risk_document(updated)
 
     async def delete_risk(self, risk_id: str) -> None:
         deleted = await self._repo.delete(risk_id)
@@ -58,68 +60,58 @@ class RiskService:
     async def get_notification_payload(self, risk_id: str) -> dict[str, Any]:
         """Clean business payload for the initial Teams notification."""
         risk = await self.get_risk(risk_id)
-        return {
+        entity = risk["entity"]
+        legacy = risk.get("extensions", {}).get("legacy", {})
+        result = {
             "riskId": risk["riskId"],
             "title": risk["title"],
-            "vessel": risk["vessel"],
+            "entity": entity,
+            # Compatibility adapter: the deployed bot reads vessel.id/name.
+            "vessel": {"id": entity["id"], "name": entity["name"]},
             "severity": risk["severity"],
             "summary": risk["summary"],
-            "deadline": risk["deadline"],
             "actions": DEFAULT_ACTIONS,
         }
+        if legacy.get("deadline"):
+            result["deadline"] = legacy["deadline"]
+        return result
 
     async def get_details_payload(self, risk_id: str) -> dict[str, Any]:
         risk = await self.get_risk(risk_id)
-        details = risk.get("details", {}) or {}
         return {
             "riskId": risk["riskId"],
             "title": risk["title"],
-            "fundingShortfall": risk.get("fundingShortfall", 0),
-            "paymentsAtRisk": risk.get("paymentsAtRisk", 0),
-            "deadline": risk["deadline"],
-            "accountRisk": risk.get("accountRisk", ""),
-            "underlyingExposure": details.get("underlyingExposure", []),
-            "impact": details.get("impact", []),
+            "sections": risk["details"]["sections"],
         }
 
     async def get_details_action_payload(self, risk_id: str) -> dict[str, Any]:
         """Projection used only by the view_details action card."""
         risk = await self.get_risk(risk_id)
-        details = risk.get("details", {}) or {}
         return {
-            "title": risk["title"],
+            "title": "Risk Details",
+            "subtitle": risk["title"],
             "severity": risk["severity"],
-            "vessel": risk["vessel"],
-            "summary": risk["summary"],
-            "details": {
-                "underlyingExposure": details.get("underlyingExposure", []),
-                "impact": details.get("impact", []),
-            },
+            "entity": risk["entity"],
+            "sections": risk["details"]["sections"],
         }
 
     async def get_mitigation_plan_payload(self, risk_id: str) -> dict[str, Any]:
         risk = await self.get_risk(risk_id)
-        plan = risk.get("mitigationPlan", {}) or {}
         return {
             "riskId": risk["riskId"],
             "title": risk["title"],
-            "summary": plan.get("summary") or "",
-            "steps": plan.get("steps", []),
+            "sections": risk["mitigation"]["sections"],
         }
 
     async def get_mitigation_plan_action_payload(self, risk_id: str) -> dict[str, Any]:
         """Projection used only by the mitigation_plan action card."""
         risk = await self.get_risk(risk_id)
-        plan = risk.get("mitigationPlan", {}) or {}
         return {
-            "title": risk["title"],
+            "title": "Mitigation Plan",
+            "subtitle": risk["title"],
             "severity": risk["severity"],
-            "vessel": risk["vessel"],
-            "mitigationPlan": {
-                "summary": plan.get("summary"),
-                "steps": plan.get("steps", []),
-                "lastUpdated": plan.get("lastUpdated"),
-            },
+            "entity": risk["entity"],
+            "sections": risk["mitigation"]["sections"],
         }
 
     async def set_tracking(self, risk_id: str, tracked_by: Optional[str]) -> dict[str, Any]:

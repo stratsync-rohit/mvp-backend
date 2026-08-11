@@ -78,9 +78,10 @@ class RiskRepository:
         return [await self._backfill_legacy_timestamps(doc) async for doc in cursor]
 
     async def update(self, risk_id: str, update_fields: dict[str, Any]) -> Optional[dict[str, Any]]:
+        update_fields = dict(update_fields)
         update_fields["updatedAt"] = self._now()
-        # riskId must never be changed via update
         update_fields.pop("riskId", None)
+        update_fields.pop("createdAt", None)
 
         await self._collection.update_one({"riskId": risk_id}, {"$set": update_fields})
         return await self.get_by_risk_id(risk_id)
