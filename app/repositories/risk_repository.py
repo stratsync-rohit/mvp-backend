@@ -24,8 +24,30 @@ class RiskRepository:
         await self._collection.insert_one(risk_doc)
         return await self.get_by_risk_id(risk_doc["riskId"])
 
+    async def _backfill_legacy_timestamps(self, risk_doc: dict[str, Any]) -> dict[str, Any]:
+        """Lazily add root timestamps required by the API to legacy documents."""
+        missing: dict[str, datetime] = {}
+        created_at = risk_doc.get("createdAt")
+        updated_at = risk_doc.get("updatedAt")
+
+        if created_at is None:
+            object_id = risk_doc.get("_id")
+            created_at = updated_at or getattr(object_id, "generation_time", None) or self._now()
+            missing["createdAt"] = created_at
+        if updated_at is None:
+            updated_at = created_at
+            missing["updatedAt"] = updated_at
+
+        if missing:
+            await self._collection.update_one({"_id": risk_doc["_id"]}, {"$set": missing})
+            risk_doc.update(missing)
+        return risk_doc
+
     async def get_by_risk_id(self, risk_id: str) -> Optional[dict[str, Any]]:
-        return await self._collection.find_one({"riskId": risk_id})
+        risk_doc = await self._collection.find_one({"riskId": risk_id})
+        if risk_doc is None:
+            return None
+        return await self._backfill_legacy_timestamps(risk_doc)
 
     async def exists(self, risk_id: str) -> bool:
         count = await self._collection.count_documents({"riskId": risk_id}, limit=1)
@@ -53,12 +75,9 @@ class RiskRepository:
             .skip(skip)
             .limit(limit)
         )
-        return [doc async for doc in cursor]
+        return [await self._backfill_legacy_timestamps(doc) async for doc in cursor]
 
     async def update(self, risk_id: str, update_fields: dict[str, Any]) -> Optional[dict[str, Any]]:
-        if not update_fields:
-            return await self.get_by_risk_id(risk_id)
-
         update_fields["updatedAt"] = self._now()
         # riskId must never be changed via update
         update_fields.pop("riskId", None)

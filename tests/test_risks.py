@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 
@@ -8,6 +10,8 @@ async def test_create_risk(async_client, sample_risk_payload):
     body = response.json()
     assert body["riskId"] == "RSK-OP-0821"
     assert body["title"] == "Owner funding is short"
+    assert datetime.fromisoformat(body["createdAt"])
+    assert body["updatedAt"] == body["createdAt"]
     assert "_id" not in body
 
 
@@ -50,7 +54,9 @@ async def test_list_risks_with_filters(async_client, sample_risk_payload):
 
 @pytest.mark.asyncio
 async def test_update_risk_partial(async_client, sample_risk_payload):
-    await async_client.post("/api/risks", json=sample_risk_payload)
+    created = await async_client.post("/api/risks", json=sample_risk_payload)
+    original_created_at = created.json()["createdAt"]
+    original_updated_at = created.json()["updatedAt"]
 
     response = await async_client.patch("/api/risks/RSK-OP-0821", json={"status": "in_progress"})
     assert response.status_code == 200
@@ -58,6 +64,30 @@ async def test_update_risk_partial(async_client, sample_risk_payload):
     assert body["status"] == "in_progress"
     # riskId must remain unchanged
     assert body["riskId"] == "RSK-OP-0821"
+    assert body["createdAt"] == original_created_at
+    assert body["updatedAt"] > original_updated_at
+
+
+@pytest.mark.asyncio
+async def test_list_and_get_legacy_risk_without_timestamps(async_client, sample_risk_payload):
+    from app.database import mongo_manager
+
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    await mongo_manager.database.risks.update_one(
+        {"riskId": "RSK-OP-0821"},
+        {"$unset": {"createdAt": "", "updatedAt": ""}},
+    )
+
+    list_response = await async_client.get("/api/risks")
+    assert list_response.status_code == 200
+    legacy_risk = list_response.json()[0]
+    assert legacy_risk["createdAt"]
+    assert legacy_risk["updatedAt"] == legacy_risk["createdAt"]
+
+    get_response = await async_client.get("/api/risks/RSK-OP-0821")
+    assert get_response.status_code == 200
+    assert get_response.json()["createdAt"]
+    assert get_response.json()["updatedAt"] == get_response.json()["createdAt"]
 
 
 @pytest.mark.asyncio
