@@ -1,11 +1,8 @@
 """Strict risk envelope with extensible, JSON-safe business content."""
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from app.schemas.common import ActionButton, Vessel
-
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -90,15 +87,14 @@ class RiskResponse(RiskCreate):
 
 
 class RiskNotificationResponse(StrictModel):
-    """Generic notification with temporary fields consumed by the legacy bot."""
+    """Stable generic projection used by the initial Teams notification."""
     riskId: str
     title: str
-    entity: Entity
     severity: str
-    summary: str | None = None
-    actions: list[ActionButton]
-    vessel: Vessel | None = None
-    deadline: date | None = None
+    status: str
+    summary: str
+    entity: Entity
+    metrics: list[Metric] = Field(default_factory=list)
 
 
 class RiskSectionsResponse(StrictModel):

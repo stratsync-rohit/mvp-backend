@@ -5,7 +5,6 @@ Risk service - business logic for risk CRUD and derived payloads
 from typing import Any, Optional
 
 from app.exceptions.handlers import RiskAlreadyExistsError, RiskNotFoundError
-from app.models.risk import DEFAULT_ACTIONS
 from app.repositories.risk_repository import RiskRepository
 from app.schemas.risk import RiskCreate, RiskUpdate
 from app.services.risk_normalizer import normalize_risk_document
@@ -60,21 +59,15 @@ class RiskService:
     async def get_notification_payload(self, risk_id: str) -> dict[str, Any]:
         """Clean business payload for the initial Teams notification."""
         risk = await self.get_risk(risk_id)
-        entity = risk["entity"]
-        legacy = risk.get("extensions", {}).get("legacy", {})
-        result = {
+        return {
             "riskId": risk["riskId"],
             "title": risk["title"],
-            "entity": entity,
-            # Compatibility adapter: the deployed bot reads vessel.id/name.
-            "vessel": {"id": entity["id"], "name": entity["name"]},
             "severity": risk["severity"],
-            "summary": risk["summary"],
-            "actions": DEFAULT_ACTIONS,
+            "status": risk["status"],
+            "summary": risk.get("summary") or "",
+            "entity": risk["entity"],
+            "metrics": risk["metrics"],
         }
-        if legacy.get("deadline"):
-            result["deadline"] = legacy["deadline"]
-        return result
 
     async def get_details_payload(self, risk_id: str) -> dict[str, Any]:
         risk = await self.get_risk(risk_id)

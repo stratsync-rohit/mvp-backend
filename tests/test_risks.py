@@ -97,9 +97,11 @@ async def test_notification_adapter_and_send_to_teams(async_client, sample_risk_
     await async_client.post("/api/risks", json=sample_risk_payload)
     notification = (await async_client.get("/api/risks/RSK-OP-0821/notification")).json()
     assert notification["entity"]["type"] == "vessel"
-    assert notification["vessel"]["name"] == notification["entity"]["name"]
-    assert {a["key"] for a in notification["actions"]} == {
-        "view_details", "mitigation_plan", "assign", "track_risk"}
+    assert notification["metrics"] == sample_risk_payload["metrics"]
+    assert notification["status"] == "open"
+    assert set(notification) == {
+        "riskId", "title", "severity", "status", "summary", "entity", "metrics"}
+    assert "details" not in notification and "mitigation" not in notification
     await _install_teams(async_client)
     sent = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
     assert sent.status_code == 200 and sent.json()["success"] is True
