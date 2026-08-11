@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class TeamDestinationCreate(BaseModel):
@@ -22,6 +22,59 @@ class TeamDestinationResponse(BaseModel):
     enabled: bool
     createdAt: datetime
     updatedAt: datetime
+
+
+class TeamsInstallationCreate(BaseModel):
+    tenantId: str = Field(min_length=1)
+    teamId: Optional[str] = None
+    channelId: Optional[str] = None
+    conversationId: str = Field(min_length=1)
+    serviceUrl: str = Field(min_length=1)
+    teamName: Optional[str] = None
+    channelName: Optional[str] = None
+    botAppId: str
+    enabled: bool = True
+
+
+class TeamsInstallationResponse(TeamsInstallationCreate):
+    accountId: str
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class TeamsInstallationRegistrationResponse(BaseModel):
+    success: bool
+    message: str
+    installation: TeamsInstallationResponse
+
+
+class TenantMappingCreate(BaseModel):
+    tenantId: str = Field(min_length=1)
+    clientName: str = Field(min_length=1)
+    enabled: bool = True
+
+
+class TenantMappingResponse(TenantMappingCreate):
+    accountId: str
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class TenantMappingUpsertResponse(BaseModel):
+    success: bool
+    mapping: TenantMappingResponse
+
+
+class TeamsIntegrationStatus(BaseModel):
+    connected: bool
+    accountId: str
+    tenantId: Optional[str] = None
+    teamId: Optional[str] = None
+    channelId: Optional[str] = None
+    conversationId: Optional[str] = None
+    teamName: Optional[str] = None
+    channelName: Optional[str] = None
+    enabled: bool
 
 
 class SendToTeamsRequest(BaseModel):

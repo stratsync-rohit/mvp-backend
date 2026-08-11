@@ -18,12 +18,16 @@ from app.repositories.idempotency_repository import IdempotencyRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
 from app.repositories.risk_repository import RiskRepository
 from app.repositories.teams_destination_repository import TeamsDestinationRepository
+from app.repositories.teams_installation_repository import TeamsInstallationRepository
+from app.repositories.tenant_mapping_repository import TenantMappingRepository
 from app.services.action_service import ActionService
 from app.services.n8n_service import N8nService
 from app.services.notification_log_service import NotificationLogService
 from app.services.notification_service import NotificationService
 from app.services.risk_service import RiskService
 from app.services.teams_destination_service import TeamsDestinationService
+from app.services.teams_installation_service import TeamsInstallationService
+from app.services.tenant_mapping_service import TenantMappingService
 
 DbDep = Annotated[AsyncIOMotorDatabase, Depends(get_database)]
 
@@ -34,6 +38,14 @@ def get_risk_repository(db: DbDep) -> RiskRepository:
 
 def get_teams_destination_repository(db: DbDep) -> TeamsDestinationRepository:
     return TeamsDestinationRepository(db)
+
+
+def get_teams_installation_repository(db: DbDep) -> TeamsInstallationRepository:
+    return TeamsInstallationRepository(db)
+
+
+def get_tenant_mapping_repository(db: DbDep) -> TenantMappingRepository:
+    return TenantMappingRepository(db)
 
 
 def get_notification_log_repository(db: DbDep) -> NotificationLogRepository:
@@ -56,6 +68,21 @@ def get_teams_destination_service(
     return TeamsDestinationService(repo)
 
 
+def get_teams_installation_service(
+    repo: Annotated[TeamsInstallationRepository, Depends(get_teams_installation_repository)],
+    tenant_mapping_repo: Annotated[
+        TenantMappingRepository, Depends(get_tenant_mapping_repository)
+    ],
+) -> TeamsInstallationService:
+    return TeamsInstallationService(repo, tenant_mapping_repo)
+
+
+def get_tenant_mapping_service(
+    repo: Annotated[TenantMappingRepository, Depends(get_tenant_mapping_repository)],
+) -> TenantMappingService:
+    return TenantMappingService(repo)
+
+
 def get_notification_log_service(
     repo: Annotated[NotificationLogRepository, Depends(get_notification_log_repository)],
 ) -> NotificationLogService:
@@ -68,14 +95,16 @@ def get_n8n_service() -> N8nService:
 
 def get_notification_service(
     risk_service: Annotated[RiskService, Depends(get_risk_service)],
-    destination_service: Annotated[TeamsDestinationService, Depends(get_teams_destination_service)],
+    installation_service: Annotated[
+        TeamsInstallationService, Depends(get_teams_installation_service)
+    ],
     log_repo: Annotated[NotificationLogRepository, Depends(get_notification_log_repository)],
     idempotency_repo: Annotated[IdempotencyRepository, Depends(get_idempotency_repository)],
     n8n_service: Annotated[N8nService, Depends(get_n8n_service)],
 ) -> NotificationService:
     return NotificationService(
         risk_service=risk_service,
-        destination_service=destination_service,
+        installation_service=installation_service,
         notification_log_repository=log_repo,
         idempotency_repository=idempotency_repo,
         n8n_service=n8n_service,

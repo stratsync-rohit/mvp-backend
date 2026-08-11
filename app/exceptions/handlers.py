@@ -44,6 +44,27 @@ class TeamsDestinationDisabledError(AppError):
         super().__init__("Teams destination is disabled", status.HTTP_409_CONFLICT)
 
 
+class TeamsInstallationNotConfiguredError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Microsoft Teams integration is not configured for this account.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
+class MicrosoftTenantNotMappedError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Microsoft tenant is not mapped to a StratSync account.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
+class TenantMappingNotFoundError(AppError):
+    def __init__(self):
+        super().__init__("Microsoft tenant mapping not found", status.HTTP_404_NOT_FOUND)
+
+
 class N8nDeliveryError(AppError):
     def __init__(self, detail: str = "Unable to queue Microsoft Teams notification"):
         super().__init__(detail, status.HTTP_502_BAD_GATEWAY)

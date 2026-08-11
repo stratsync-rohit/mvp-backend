@@ -18,13 +18,13 @@ instead of re-triggering n8n.
 import uuid
 from typing import Any, Optional
 
-from app.exceptions.handlers import N8nDeliveryError, TeamsDestinationDisabledError
+from app.exceptions.handlers import N8nDeliveryError
 from app.models.risk import EventType, LogStatus
 from app.repositories.idempotency_repository import IdempotencyRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
 from app.services.n8n_service import N8nDeliveryException, N8nService
 from app.services.risk_service import RiskService
-from app.services.teams_destination_service import TeamsDestinationService
+from app.services.teams_installation_service import TeamsInstallationService
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -36,13 +36,13 @@ class NotificationService:
     def __init__(
         self,
         risk_service: RiskService,
-        destination_service: TeamsDestinationService,
+        installation_service: TeamsInstallationService,
         notification_log_repository: NotificationLogRepository,
         idempotency_repository: IdempotencyRepository,
         n8n_service: N8nService,
     ):
         self._risk_service = risk_service
-        self._destination_service = destination_service
+        self._installation_service = installation_service
         self._log_repo = notification_log_repository
         self._idempotency_repo = idempotency_repository
         self._n8n_service = n8n_service
@@ -70,12 +70,8 @@ class NotificationService:
         risk = await self._risk_service.get_risk(risk_id)
         account_id = risk["accountId"]
 
-        # 2. Resolve destination (raises TeamsDestinationNotFoundError if missing)
-        destination = await self._destination_service.get_destination(account_id)
-
-        # 3. Verify enabled
-        if not destination.get("enabled", False):
-            raise TeamsDestinationDisabledError()
+        # 2. Resolve the active installation captured by the bot.
+        destination = await self._installation_service.get_active(account_id)
 
         # 4. Build clean notification payload
         notification = await self._risk_service.get_notification_payload(risk_id)
@@ -89,8 +85,8 @@ class NotificationService:
                 "eventType": EventType.INITIAL_NOTIFICATION.value,
                 "actionKey": None,
                 "accountId": account_id,
-                "teamId": destination["teamId"],
-                "channelId": destination["channelId"],
+                "teamId": destination.get("teamId"),
+                "channelId": destination.get("channelId"),
                 "n8nResponse": {},
                 "errorMessage": None,
             }
@@ -100,9 +96,17 @@ class NotificationService:
             "eventId": event_id,
             "eventType": EventType.INITIAL_NOTIFICATION.value,
             "riskId": risk_id,
+            "accountId": account_id,
             "destination": {
-                "teamId": destination["teamId"],
-                "channelId": destination["channelId"],
+                "teamId": destination.get("teamId"),
+                "channelId": destination.get("channelId"),
+            },
+            "teamsDestination": {
+                "tenantId": destination["tenantId"],
+                "teamId": destination.get("teamId"),
+                "channelId": destination.get("channelId"),
+                "conversationId": destination["conversationId"],
+                "serviceUrl": destination["serviceUrl"],
             },
             "notification": notification,
         }

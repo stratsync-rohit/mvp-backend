@@ -65,6 +65,24 @@ async def create_indexes() -> None:
     # teams_destinations collection
     await db.teams_destinations.create_index("accountId", unique=True)
 
+    # tenant_mappings collection
+    await db.tenant_mappings.create_index("tenantId", unique=True)
+    await db.tenant_mappings.create_index("accountId")
+
+    # teams_installations collection. Partial indexes support both logical
+    # keys: account+tenant+team, or account+tenant+conversation without a team.
+    await db.teams_installations.create_index("accountId")
+    await db.teams_installations.create_index(
+        [("accountId", 1), ("tenantId", 1), ("teamId", 1)],
+        unique=True,
+        partialFilterExpression={"teamId": {"$type": "string"}},
+    )
+    await db.teams_installations.create_index(
+        [("accountId", 1), ("tenantId", 1), ("conversationId", 1)],
+        unique=True,
+        partialFilterExpression={"teamId": None},
+    )
+
     # notification_logs collection
     await db.notification_logs.create_index("riskId")
     await db.notification_logs.create_index("eventId", unique=True)

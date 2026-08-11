@@ -116,7 +116,14 @@ async def test_send_to_teams_success(
     async_client, sample_risk_payload, sample_destination_payload, mock_n8n_success
 ):
     await async_client.post("/api/risks", json=sample_risk_payload)
-    await async_client.put("/api/teams/destinations/ACC-001", json=sample_destination_payload)
+    await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
+        "tenantId": "tenant-1", "clientName": "Client A", "enabled": True
+    })
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "tenant-1", "teamId": "19:sample-team-id",
+        "channelId": "19:sample-channel-id", "conversationId": "conversation-1",
+        "serviceUrl": "https://smba.trafficmanager.net/emea/", "botAppId": "bot-1"
+    })
 
     response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
     assert response.status_code == 200
@@ -133,8 +140,8 @@ async def test_send_to_teams_missing_destination_returns_404(
     await async_client.post("/api/risks", json=sample_risk_payload)
 
     response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Teams destination not configured"
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Microsoft Teams integration is not configured for this account."
 
 
 @pytest.mark.asyncio
@@ -142,7 +149,14 @@ async def test_send_to_teams_n8n_failure_returns_502(
     async_client, sample_risk_payload, sample_destination_payload, mock_n8n_failure
 ):
     await async_client.post("/api/risks", json=sample_risk_payload)
-    await async_client.put("/api/teams/destinations/ACC-001", json=sample_destination_payload)
+    await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
+        "tenantId": "tenant-1", "clientName": "Client A", "enabled": True
+    })
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "tenant-1", "teamId": "19:sample-team-id",
+        "channelId": "19:sample-channel-id", "conversationId": "conversation-1",
+        "serviceUrl": "https://smba.trafficmanager.net/emea/", "botAppId": "bot-1"
+    })
 
     response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
     assert response.status_code == 502

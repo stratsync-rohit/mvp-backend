@@ -21,6 +21,7 @@ that come back from the Teams bot when a user clicks a card button.
 6. Processes action requests coming back from the Teams bot / n8n (button clicks).
 7. Stores Teams destination mappings (`accountId` → team/channel).
 8. Stores notification and action logs for auditing.
+9. Maps each Microsoft tenant to the correct StratSync account for shared-bot installs.
 
 ---
 
@@ -242,6 +243,35 @@ curl -X PUT http://localhost:8000/api/teams/destinations/ACC-001 \
     "channelName": "Risk Alerts",
     "enabled": true
   }'
+```
+
+### Onboard a client for the shared Teams bot
+
+Before giving a client the Teams app, create their StratSync account, obtain their
+Microsoft tenant ID, and create the mapping:
+
+```bash
+curl -X PUT http://localhost:8000/api/teams/tenant-mappings/ACC-002 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenantId": "CLIENT_TENANT_ID",
+    "clientName": "ABC Shipping",
+    "enabled": true
+  }'
+```
+
+Verify it by account:
+
+```bash
+curl http://localhost:8000/api/teams/tenant-mappings/ACC-002
+```
+
+The client can then install the same Teams app. The bot sends the Microsoft
+`tenantId` (never an `accountId`) to `POST /api/teams/installations`; the backend
+resolves `tenantId` to `ACC-002` and upserts the installation. Confirm the result:
+
+```bash
+curl http://localhost:8000/api/teams/integration/ACC-002
 ```
 
 ### Send to Teams

@@ -5,11 +5,7 @@ services:
     image: mongo:7
     container_name: risk-notification-mongo
     restart: unless-stopped
-    # Exposing 27017 is convenient for local testing/inspection with a GUI
-    # client, but should NOT be done in production - Mongo should only be
-    # reachable from the backend service on the internal Docker network.
-    ports:
-      - "27017:27017"
+    # MongoDB is reachable only on the internal Compose network.
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -27,7 +23,7 @@ services:
       mongo:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       APP_NAME: Risk Notification Backend
       APP_ENV: development
