@@ -2,9 +2,11 @@
 from typing import Any
 
 from app.exceptions.handlers import (
+    MicrosoftTenantMappingDisabledError,
     MicrosoftTenantNotMappedError,
     TeamsInstallationNotConfiguredError,
 )
+from pymongo.errors import DuplicateKeyError
 from app.repositories.tenant_mapping_repository import TenantMappingRepository
 from app.repositories.teams_installation_repository import TeamsInstallationRepository
 from app.schemas.teams import TeamsInstallationCreate, TeamsInstallationDisconnect
@@ -26,9 +28,11 @@ class TeamsInstallationService:
         # Sparse lifecycle events must not erase useful metadata captured by
         # an earlier event for the same installation.
         fields = payload.model_dump(mode="json", exclude_none=True)
-        mapping = await self._tenant_mapping_repo.get_enabled_by_tenant(fields["tenantId"])
-        if not mapping:
-            raise MicrosoftTenantNotMappedError()
+        mapping = await self.resolve_or_provision_account(
+            tenant_id=fields["tenantId"],
+            team_name=fields.get("teamName"),
+            connected_by_name=fields.get("connectedByName"),
+        )
         scoped_fields = {"accountId": mapping["accountId"], **fields}
         previous = await self._repo.get_matching(scoped_fields)
         installation = await self._repo.upsert(scoped_fields)
@@ -42,6 +46,71 @@ class TeamsInstallationService:
                 },
             )
         return installation
+
+    async def resolve_or_provision_account(
+        self,
+        tenant_id: str,
+        team_name: str | None = None,
+        connected_by_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve tenant ownership, provisioning it once when it is new.
+
+        ``team_name`` is only a provisional display-name fallback. Actor names
+        are deliberately not used as customer names.
+        """
+        mapping = await self._tenant_mapping_repo.get_by_tenant(tenant_id)
+        if mapping:
+            if not mapping.get("enabled", False):
+                logger.warning(
+                    "teams_tenant_mapping_disabled",
+                    extra={"tenantId": tenant_id, "accountId": mapping["accountId"]},
+                )
+                raise MicrosoftTenantMappingDisabledError()
+            logger.info(
+                "teams_tenant_mapping_found",
+                extra={"tenantId": tenant_id, "accountId": mapping["accountId"]},
+            )
+            return mapping
+
+        logger.info(
+            "teams_tenant_auto_provision_started",
+            extra={"tenantId": tenant_id, "hasTeamName": bool(team_name)},
+        )
+        # Account-ID collisions can only occur if a legacy/manual writer races
+        # the counter. Retrying preserves both uniqueness and tenant isolation.
+        while True:
+            account_id = await self._tenant_mapping_repo.next_account_id()
+            try:
+                mapping = await self._tenant_mapping_repo.create_provisioned(
+                    account_id=account_id,
+                    tenant_id=tenant_id,
+                    client_name=team_name or account_id,
+                )
+            except DuplicateKeyError:
+                mapping = await self._tenant_mapping_repo.get_by_tenant(tenant_id)
+                if not mapping:
+                    continue
+                if not mapping.get("enabled", False):
+                    logger.warning(
+                        "teams_tenant_mapping_disabled",
+                        extra={"tenantId": tenant_id, "accountId": mapping["accountId"]},
+                    )
+                    raise MicrosoftTenantMappingDisabledError()
+                logger.info(
+                    "teams_tenant_auto_provision_race_resolved",
+                    extra={"tenantId": tenant_id, "accountId": mapping["accountId"]},
+                )
+                return mapping
+
+            logger.info(
+                "teams_tenant_auto_provisioned",
+                extra={
+                    "tenantId": tenant_id,
+                    "accountId": account_id,
+                    "hasTeamName": bool(team_name),
+                },
+            )
+            return mapping
 
     async def disconnect(self, payload: TeamsInstallationDisconnect) -> dict[str, Any]:
         mapping = await self._tenant_mapping_repo.get_enabled_by_tenant(payload.tenantId)

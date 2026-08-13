@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.database import mongo_manager
@@ -124,12 +126,68 @@ async def test_integration_status_connected_and_unknown(async_client):
 
 
 @pytest.mark.asyncio
-async def test_installation_for_unmapped_tenant_returns_conflict(async_client):
-    response = await async_client.post("/api/teams/installations", json=INSTALLATION)
+async def test_installation_for_unmapped_tenant_auto_provisions(async_client):
+    await create_mapping(async_client)
+    payload = {**INSTALLATION, "tenantId": "tenant-2", "teamName": "Client B"}
+    response = await async_client.post("/api/teams/installations", json=payload)
+    assert response.status_code == 200
+    assert response.json()["installation"]["accountId"] == "ACC-002"
+
+    mapping = await mongo_manager.database.tenant_mappings.find_one(
+        {"tenantId": "tenant-2"}
+    )
+    assert mapping["accountId"] == "ACC-002"
+    assert mapping["clientName"] == "Client B"
+    assert mapping["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_auto_provision_uses_max_existing_suffix_and_reuses_account(async_client):
+    await create_mapping(async_client)
+    await create_mapping(async_client, "ACC-003", "tenant-3")
+    payload = {**INSTALLATION, "tenantId": "tenant-4", "teamName": None}
+    first = await async_client.post("/api/teams/installations", json=payload)
+    second = await async_client.post("/api/teams/installations", json=payload)
+    assert first.json()["installation"]["accountId"] == "ACC-004"
+    assert second.json()["installation"]["accountId"] == "ACC-004"
+    assert await mongo_manager.database.tenant_mappings.count_documents(
+        {"tenantId": "tenant-4"}
+    ) == 1
+    mapping = await mongo_manager.database.tenant_mappings.find_one(
+        {"tenantId": "tenant-4"}
+    )
+    assert mapping["clientName"] == "ACC-004"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_new_tenant_registrations_converge(async_client):
+    await create_mapping(async_client)
+    payload = {**INSTALLATION, "tenantId": "tenant-race", "teamName": "Race Team"}
+    first, second = await asyncio.gather(
+        async_client.post("/api/teams/installations", json=payload),
+        async_client.post("/api/teams/installations", json=payload),
+    )
+    assert first.status_code == second.status_code == 200
+    assert first.json()["installation"]["accountId"] == second.json()["installation"]["accountId"]
+    assert await mongo_manager.database.tenant_mappings.count_documents(
+        {"tenantId": "tenant-race"}
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_disabled_mapping_is_not_reprovisioned(async_client):
+    await async_client.put(
+        "/api/teams/tenant-mappings/ACC-002",
+        json={"tenantId": "tenant-2", "clientName": "Client B", "enabled": False},
+    )
+    response = await async_client.post(
+        "/api/teams/installations", json={**INSTALLATION, "tenantId": "tenant-2"}
+    )
     assert response.status_code == 409
-    assert response.json() == {
-        "detail": "Microsoft tenant is not mapped to a StratSync account."
-    }
+    assert response.json() == {"detail": "Microsoft tenant mapping is disabled."}
+    assert await mongo_manager.database.tenant_mappings.count_documents(
+        {"tenantId": "tenant-2"}
+    ) == 1
 
 
 @pytest.mark.asyncio

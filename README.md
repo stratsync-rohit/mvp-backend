@@ -247,28 +247,19 @@ curl -X PUT http://localhost:8000/api/teams/destinations/ACC-001 \
 
 ### Onboard a client for the shared Teams bot
 
-Before giving a client the Teams app, create their StratSync account, obtain their
-Microsoft tenant ID, and create the mapping:
+No manual mapping is needed. The bot sends the Microsoft `tenantId` (never an
+`accountId`) to `POST /api/teams/installations`. The backend reuses an enabled
+mapping when one exists; otherwise it atomically allocates the next `ACC-NNN`,
+creates the tenant mapping, and continues the normal installation upsert.
 
-```bash
-curl -X PUT http://localhost:8000/api/teams/tenant-mappings/ACC-002 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenantId": "CLIENT_TENANT_ID",
-    "clientName": "ABC Shipping",
-    "enabled": true
-  }'
-```
+The counter is reconciled against the maximum numeric suffix already present, so
+existing mappings are unchanged and gaps are safe. `teamName` is used only as a
+provisional `clientName`; when it is absent, `accountId` is the display-name
+fallback. A canonical name can still be applied later through the mapping API.
+A disabled mapping is never replaced or automatically re-enabled: registration
+returns HTTP 409 and retains its historical account ownership.
 
-Verify it by account:
-
-```bash
-curl http://localhost:8000/api/teams/tenant-mappings/ACC-002
-```
-
-The client can then install the same Teams app. The bot sends the Microsoft
-`tenantId` (never an `accountId`) to `POST /api/teams/installations`; the backend
-resolves `tenantId` to `ACC-002` and upserts the installation. Confirm the result:
+Confirm an installed client's result using the allocated account ID:
 
 ```bash
 curl http://localhost:8000/api/teams/integration/ACC-002
@@ -310,8 +301,8 @@ and exposes optional `channelName` and `connectedByName` display metadata from
 the latest active installation. `connectedByName` is the actor supplied on the
 Teams connection lifecycle activity, not a claim that the user is an account
 owner or Teams administrator. Sparse re-registration events retain previously
-captured non-null optional metadata.
-and omits service URLs and credentials. Both endpoints reuse the existing optional
+captured non-null optional metadata and the overview omits service URLs and
+credentials. Both endpoints reuse the existing optional
 internal API-key guard. In deployed environments, set a strong `INTERNAL_API_KEY`
 and `INTERNAL_API_KEY_ENABLED=true`; when disabled, these routes are unauthenticated.
 

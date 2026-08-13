@@ -67,7 +67,25 @@ async def create_indexes() -> None:
 
     # tenant_mappings collection
     await db.tenant_mappings.create_index("tenantId", unique=True)
-    await db.tenant_mappings.create_index("accountId")
+    account_index = (await db.tenant_mappings.index_information()).get("accountId_1")
+    if account_index and not account_index.get("unique", False):
+        duplicate = None
+        pipeline = [
+            {"$group": {"_id": "$accountId", "count": {"$sum": 1}}},
+            {"$match": {"_id": {"$ne": None}, "count": {"$gt": 1}}},
+            {"$limit": 1},
+        ]
+        async for item in db.tenant_mappings.aggregate(pipeline):
+            duplicate = item["_id"]
+        if duplicate:
+            raise RuntimeError(
+                "Cannot enforce unique tenant_mappings.accountId index: "
+                f"duplicate accountId {duplicate!r} exists"
+            )
+        # Index replacement changes no documents and is needed once when
+        # upgrading deployments that had the earlier non-unique index.
+        await db.tenant_mappings.drop_index("accountId_1")
+    await db.tenant_mappings.create_index("accountId", unique=True)
 
     # teams_installations collection. Partial indexes support both logical
     # keys: account+tenant+team, or account+tenant+conversation without a team.

@@ -60,6 +60,14 @@ class MicrosoftTenantNotMappedError(AppError):
         )
 
 
+class MicrosoftTenantMappingDisabledError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Microsoft tenant mapping is disabled.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
 class TenantMappingNotFoundError(AppError):
     def __init__(self):
         super().__init__("Microsoft tenant mapping not found", status.HTTP_404_NOT_FOUND)
