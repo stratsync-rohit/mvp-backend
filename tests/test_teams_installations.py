@@ -11,6 +11,9 @@ INSTALLATION = {
     "serviceUrl": "https://smba.trafficmanager.net/emea/",
     "teamName": None,
     "channelName": None,
+    "connectedByName": None,
+    "connectedById": None,
+    "connectedByAadObjectId": None,
     "botAppId": "bot-app-1",
     "enabled": True,
 }
@@ -57,6 +60,43 @@ async def test_installation_registration_upserts(async_client):
 
 
 @pytest.mark.asyncio
+async def test_registration_stores_channel_and_connected_actor(async_client):
+    await create_mapping(async_client)
+    payload = {
+        **INSTALLATION,
+        "channelId": "channel-1",
+        "channelName": "General",
+        "connectedByName": "Installation Actor",
+        "connectedById": "teams-user-1",
+        "connectedByAadObjectId": "aad-1",
+    }
+    body = (await async_client.post("/api/teams/installations", json=payload)).json()
+    installation = body["installation"]
+    assert installation["channelName"] == "General"
+    assert installation["connectedByName"] == "Installation Actor"
+    assert installation["connectedByAadObjectId"] == "aad-1"
+
+
+@pytest.mark.asyncio
+async def test_sparse_reactivation_preserves_useful_optional_metadata(async_client):
+    await create_mapping(async_client)
+    rich = {
+        **INSTALLATION,
+        "channelName": "General",
+        "connectedByName": "Installation Actor",
+    }
+    await async_client.post("/api/teams/installations", json=rich)
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "team-1"},
+    )
+    sparse = {key: value for key, value in INSTALLATION.items() if value is not None}
+    reactivated = (await async_client.post("/api/teams/installations", json=sparse)).json()
+    assert reactivated["installation"]["channelName"] == "General"
+    assert reactivated["installation"]["connectedByName"] == "Installation Actor"
+
+
+@pytest.mark.asyncio
 async def test_integration_status_connected_and_unknown(async_client):
     await create_mapping(async_client)
     await async_client.post("/api/teams/installations", json=INSTALLATION)
@@ -65,14 +105,22 @@ async def test_integration_status_connected_and_unknown(async_client):
     assert connected.status_code == 200
     assert connected.json()["connected"] is True
     assert connected.json()["conversationId"] == "conversation-1"
+    assert connected.json()["accountName"] == "Client A"
+    assert connected.json()["channelName"] is None
+    assert connected.json()["connectedByName"] is None
 
     unknown = await async_client.get("/api/teams/integration/ACC-999")
     assert unknown.status_code == 200
-    assert unknown.json() == {
-        "connected": False,
-        "accountId": "ACC-999",
-        "enabled": False,
+    assert unknown.json()["connected"] is False
+    assert unknown.json()["accountId"] == "ACC-999"
+    assert unknown.json()["channelName"] is None
+    assert unknown.json()["connectedByName"] is None
+
+    forbidden = {
+        "serviceUrl", "accessToken", "clientSecret", "botAppId",
+        "authorization", "apiKey", "connectedById", "connectedByAadObjectId",
     }
+    assert not forbidden.intersection(connected.json())
 
 
 @pytest.mark.asyncio
@@ -109,6 +157,7 @@ async def test_disconnect_marks_only_matching_client_inactive(async_client):
     )
     assert stored_a["enabled"] is False
     assert stored_a["disconnectedAt"] is not None
+    assert stored_a.get("teamName") == install_a.get("teamName")
     assert stored_b["enabled"] is True
     assert (await async_client.get("/api/teams/integration/ACC-A")).json()["connected"] is False
     assert (await async_client.get("/api/teams/integration/ACC-B")).json()["connected"] is True
@@ -169,7 +218,13 @@ async def test_integration_overview_uses_client_name_and_hides_sensitive_fields(
     )
     await async_client.post(
         "/api/teams/installations",
-        json={**INSTALLATION, "tenantId": "TENANT-A", "teamName": "Operations"},
+        json={
+            **INSTALLATION,
+            "tenantId": "TENANT-A",
+            "teamName": "Operations",
+            "channelName": "General",
+            "connectedByName": "Installation Actor",
+        },
     )
     response = await async_client.get("/api/teams/integrations")
     assert response.status_code == 200
@@ -178,6 +233,8 @@ async def test_integration_overview_uses_client_name_and_hides_sensitive_fields(
     assert items["ACC-A"]["connected"] is True
     assert items["ACC-A"]["activeInstallations"] == 1
     assert items["ACC-A"]["teamName"] == "Operations"
+    assert items["ACC-A"]["channelName"] == "General"
+    assert items["ACC-A"]["connectedByName"] == "Installation Actor"
     assert items["ACC-B"]["accountName"] == "ACC-B"
     assert items["ACC-B"]["connected"] is False
     assert items["ACC-B"]["activeInstallations"] == 0

@@ -306,6 +306,11 @@ curl http://localhost:8000/api/teams/integrations \
 ```
 
 It uses `tenant_mappings.clientName` as `accountName` (falling back to `accountId`)
+and exposes optional `channelName` and `connectedByName` display metadata from
+the latest active installation. `connectedByName` is the actor supplied on the
+Teams connection lifecycle activity, not a claim that the user is an account
+owner or Teams administrator. Sparse re-registration events retain previously
+captured non-null optional metadata.
 and omits service URLs and credentials. Both endpoints reuse the existing optional
 internal API-key guard. In deployed environments, set a strong `INTERNAL_API_KEY`
 and `INTERNAL_API_KEY_ENABLED=true`; when disabled, these routes are unauthenticated.

@@ -23,7 +23,9 @@ class TeamsInstallationService:
         self._tenant_mapping_repo = tenant_mapping_repository
 
     async def register(self, payload: TeamsInstallationCreate) -> dict[str, Any]:
-        fields = payload.model_dump(mode="json")
+        # Sparse lifecycle events must not erase useful metadata captured by
+        # an earlier event for the same installation.
+        fields = payload.model_dump(mode="json", exclude_none=True)
         mapping = await self._tenant_mapping_repo.get_enabled_by_tenant(fields["tenantId"])
         if not mapping:
             raise MicrosoftTenantNotMappedError()
@@ -84,6 +86,7 @@ class TeamsInstallationService:
 
     async def integration_status(self, account_id: str) -> dict[str, Any]:
         installation = await self._repo.get_active(account_id)
+        mapping = await self._tenant_mapping_repo.get_by_account(account_id)
         logger.info(
             "teams_integration_status_checked",
             extra={"accountId": account_id, "connected": installation is not None},
@@ -93,12 +96,16 @@ class TeamsInstallationService:
         return {
             "connected": True,
             "accountId": account_id,
+            "accountName": (
+                mapping.get("clientName") if mapping else None
+            ) or account_id,
             "tenantId": installation["tenantId"],
             "teamId": installation.get("teamId"),
             "channelId": installation.get("channelId"),
             "conversationId": installation["conversationId"],
             "teamName": installation.get("teamName"),
             "channelName": installation.get("channelName"),
+            "connectedByName": installation.get("connectedByName"),
             "enabled": True,
         }
 
@@ -119,6 +126,10 @@ class TeamsInstallationService:
                     "connected": bool(active),
                     "activeInstallations": len(active),
                     "teamName": latest.get("teamName") if latest else None,
+                    "channelName": latest.get("channelName") if latest else None,
+                    "connectedByName": (
+                        latest.get("connectedByName") if latest else None
+                    ),
                     "updatedAt": (
                         latest.get("updatedAt") if latest else mapping["updatedAt"]
                     ),

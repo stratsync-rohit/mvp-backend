@@ -109,7 +109,6 @@ async def list_integrations(service: InstallationServiceDep) -> list[dict]:
 @router.get(
     "/integration/{accountId}",
     response_model=TeamsIntegrationStatus,
-    response_model_exclude_none=True,
 )
 async def get_integration_status(
     accountId: str, service: InstallationServiceDep

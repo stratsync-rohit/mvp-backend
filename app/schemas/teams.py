@@ -32,6 +32,9 @@ class TeamsInstallationCreate(BaseModel):
     serviceUrl: str = Field(min_length=1)
     teamName: Optional[str] = None
     channelName: Optional[str] = None
+    connectedByName: Optional[str] = None
+    connectedById: Optional[str] = None
+    connectedByAadObjectId: Optional[str] = None
     botAppId: str
     enabled: bool = True
 
@@ -76,6 +79,8 @@ class TeamsIntegrationOverviewItem(BaseModel):
     connected: bool
     activeInstallations: int
     teamName: Optional[str] = None
+    channelName: Optional[str] = None
+    connectedByName: Optional[str] = None
     updatedAt: datetime
 
 
@@ -99,12 +104,14 @@ class TenantMappingUpsertResponse(BaseModel):
 class TeamsIntegrationStatus(BaseModel):
     connected: bool
     accountId: str
+    accountName: Optional[str] = None
     tenantId: Optional[str] = None
     teamId: Optional[str] = None
     channelId: Optional[str] = None
     conversationId: Optional[str] = None
     teamName: Optional[str] = None
     channelName: Optional[str] = None
+    connectedByName: Optional[str] = None
     enabled: bool
 
 
