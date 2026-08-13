@@ -1,5 +1,7 @@
 import pytest
 
+from app.database import mongo_manager
+
 
 INSTALLATION = {
     "tenantId": "tenant-1",
@@ -80,3 +82,122 @@ async def test_installation_for_unmapped_tenant_returns_conflict(async_client):
     assert response.json() == {
         "detail": "Microsoft tenant is not mapped to a StratSync account."
     }
+
+
+@pytest.mark.asyncio
+async def test_disconnect_marks_only_matching_client_inactive(async_client):
+    await create_mapping(async_client, "ACC-A", "TENANT-A")
+    await create_mapping(async_client, "ACC-B", "TENANT-B")
+    install_a = {**INSTALLATION, "tenantId": "TENANT-A", "teamId": "TEAM-A"}
+    install_b = {**INSTALLATION, "tenantId": "TENANT-B", "teamId": "TEAM-B"}
+    assert (await async_client.post("/api/teams/installations", json=install_a)).status_code == 200
+    assert (await async_client.post("/api/teams/installations", json=install_b)).status_code == 200
+
+    response = await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "TENANT-A", "teamId": "TEAM-A"},
+    )
+    assert response.status_code == 200
+    assert response.json()["disconnected"] is True
+    assert response.json()["accountId"] == "ACC-A"
+
+    stored_a = await mongo_manager.database.teams_installations.find_one(
+        {"accountId": "ACC-A", "tenantId": "TENANT-A", "teamId": "TEAM-A"}
+    )
+    stored_b = await mongo_manager.database.teams_installations.find_one(
+        {"accountId": "ACC-B", "tenantId": "TENANT-B", "teamId": "TEAM-B"}
+    )
+    assert stored_a["enabled"] is False
+    assert stored_a["disconnectedAt"] is not None
+    assert stored_b["enabled"] is True
+    assert (await async_client.get("/api/teams/integration/ACC-A")).json()["connected"] is False
+    assert (await async_client.get("/api/teams/integration/ACC-B")).json()["connected"] is True
+
+
+@pytest.mark.asyncio
+async def test_disconnect_not_found_is_controlled_and_requires_identity(async_client):
+    await create_mapping(async_client)
+    missing = await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "missing"},
+    )
+    assert missing.status_code == 200
+    assert missing.json()["disconnected"] is False
+    invalid = await async_client.post(
+        "/api/teams/installations/disconnect", json={"tenantId": "tenant-1"}
+    )
+    assert invalid.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_reinstall_reactivates_and_clears_disconnect_timestamp(async_client):
+    await create_mapping(async_client)
+    first = (await async_client.post("/api/teams/installations", json=INSTALLATION)).json()
+    created_at = first["installation"]["createdAt"]
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "team-1"},
+    )
+    reinstalled = await async_client.post(
+        "/api/teams/installations",
+        json={**INSTALLATION, "serviceUrl": "https://new.example.test/", "enabled": False},
+    )
+    body = reinstalled.json()["installation"]
+    assert body["createdAt"] == created_at
+    assert body["enabled"] is True
+    assert body["disconnectedAt"] is None
+    assert body["connectedAt"] is not None
+    assert body["serviceUrl"] == "https://new.example.test/"
+    assert (await async_client.get("/api/teams/integration/ACC-001")).json()["connected"] is True
+
+
+@pytest.mark.asyncio
+async def test_integration_overview_uses_client_name_and_hides_sensitive_fields(async_client):
+    await create_mapping(async_client, "ACC-A", "TENANT-A")
+    await mongo_manager.database.tenant_mappings.insert_one(
+        {
+            "accountId": "ACC-B",
+            "tenantId": "TENANT-B",
+            "enabled": True,
+            "createdAt": (await mongo_manager.database.tenant_mappings.find_one(
+                {"accountId": "ACC-A"}
+            ))["createdAt"],
+            "updatedAt": (await mongo_manager.database.tenant_mappings.find_one(
+                {"accountId": "ACC-A"}
+            ))["updatedAt"],
+        }
+    )
+    await async_client.post(
+        "/api/teams/installations",
+        json={**INSTALLATION, "tenantId": "TENANT-A", "teamName": "Operations"},
+    )
+    response = await async_client.get("/api/teams/integrations")
+    assert response.status_code == 200
+    items = {item["accountId"]: item for item in response.json()}
+    assert items["ACC-A"]["accountName"] == "Client A"
+    assert items["ACC-A"]["connected"] is True
+    assert items["ACC-A"]["activeInstallations"] == 1
+    assert items["ACC-A"]["teamName"] == "Operations"
+    assert items["ACC-B"]["accountName"] == "ACC-B"
+    assert items["ACC-B"]["connected"] is False
+    assert items["ACC-B"]["activeInstallations"] == 0
+    forbidden = {"serviceUrl", "accessToken", "clientSecret", "botAppId", "authorization", "apiKey"}
+    assert not forbidden.intersection(items["ACC-A"])
+
+
+@pytest.mark.asyncio
+async def test_account_with_another_active_installation_remains_connected(async_client):
+    await create_mapping(async_client)
+    await async_client.post("/api/teams/installations", json=INSTALLATION)
+    await async_client.post(
+        "/api/teams/installations",
+        json={**INSTALLATION, "teamId": "team-2", "conversationId": "conversation-2"},
+    )
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "team-1"},
+    )
+    status = (await async_client.get("/api/teams/integration/ACC-001")).json()
+    assert status["connected"] is True
+    overview = (await async_client.get("/api/teams/integrations")).json()
+    assert overview[0]["activeInstallations"] == 1

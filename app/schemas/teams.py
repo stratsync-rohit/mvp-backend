@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 
 class TeamDestinationCreate(BaseModel):
@@ -40,12 +40,43 @@ class TeamsInstallationResponse(TeamsInstallationCreate):
     accountId: str
     createdAt: datetime
     updatedAt: datetime
+    connectedAt: Optional[datetime] = None
+    disconnectedAt: Optional[datetime] = None
 
 
 class TeamsInstallationRegistrationResponse(BaseModel):
     success: bool
     message: str
     installation: TeamsInstallationResponse
+
+
+class TeamsInstallationDisconnect(BaseModel):
+    tenantId: str = Field(min_length=1)
+    teamId: Optional[str] = None
+    conversationId: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_installation_identity(self):
+        if not self.teamId and not self.conversationId:
+            raise ValueError("teamId or conversationId is required")
+        return self
+
+
+class TeamsInstallationDisconnectResponse(BaseModel):
+    success: bool
+    disconnected: bool
+    message: str
+    accountId: str
+
+
+class TeamsIntegrationOverviewItem(BaseModel):
+    accountId: str
+    accountName: str
+    tenantId: str
+    connected: bool
+    activeInstallations: int
+    teamName: Optional[str] = None
+    updatedAt: datetime
 
 
 class TenantMappingCreate(BaseModel):

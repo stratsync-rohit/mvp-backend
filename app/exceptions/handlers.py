@@ -47,7 +47,7 @@ class TeamsDestinationDisabledError(AppError):
 class TeamsInstallationNotConfiguredError(AppError):
     def __init__(self):
         super().__init__(
-            "Microsoft Teams integration is not configured for this account.",
+            "Microsoft Teams integration is not connected for this account.",
             status.HTTP_409_CONFLICT,
         )
 

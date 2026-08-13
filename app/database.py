@@ -73,6 +73,9 @@ async def create_indexes() -> None:
     # keys: account+tenant+team, or account+tenant+conversation without a team.
     await db.teams_installations.create_index("accountId")
     await db.teams_installations.create_index(
+        [("accountId", 1), ("enabled", 1), ("updatedAt", -1)]
+    )
+    await db.teams_installations.create_index(
         [("accountId", 1), ("tenantId", 1), ("teamId", 1)],
         unique=True,
         partialFilterExpression={"teamId": {"$type": "string"}},

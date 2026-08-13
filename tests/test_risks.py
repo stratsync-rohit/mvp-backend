@@ -113,3 +113,18 @@ async def test_send_to_teams_failures(async_client, sample_risk_payload, mock_n8
     assert (await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")).status_code == 409
     await _install_teams(async_client)
     assert (await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")).status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_send_to_teams_rejects_inactive_installation(async_client, sample_risk_payload):
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    await _install_teams(async_client)
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "team"},
+    )
+    response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Microsoft Teams integration is not connected for this account."
+    }

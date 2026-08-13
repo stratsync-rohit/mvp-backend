@@ -274,6 +274,51 @@ resolves `tenantId` to `ACC-002` and upserts the installation. Confirm the resul
 curl http://localhost:8000/api/teams/integration/ACC-002
 ```
 
+### Teams installation lifecycle
+
+Registration always makes the matching installation active, clears
+`disconnectedAt`, and refreshes its Teams routing fields. When Teams reports that
+an app was removed, the bot sends the tenant plus the installation identity (never
+an `accountId` supplied by the bot):
+
+```bash
+curl -X POST http://localhost:8000/api/teams/installations/disconnect \
+  -H "Content-Type: application/json" \
+  -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+  -d '{
+    "tenantId": "CLIENT_TENANT_ID",
+    "teamId": "MICROSOFT_TEAM_ID",
+    "conversationId": "OPTIONAL_CONVERSATION_ID"
+  }'
+```
+
+At least one of `teamId` or `conversationId` is required. The backend resolves the
+enabled tenant mapping to its canonical `accountId` and only soft-disconnects the
+active installation matching that account, tenant, and supplied identity. A missing
+active match returns a controlled success with `disconnected: false`; records are
+never deleted.
+
+The internal multi-client summary is available at:
+
+```bash
+curl http://localhost:8000/api/teams/integrations \
+  -H "X-Internal-API-Key: $INTERNAL_API_KEY"
+```
+
+It uses `tenant_mappings.clientName` as `accountName` (falling back to `accountId`)
+and omits service URLs and credentials. Both endpoints reuse the existing optional
+internal API-key guard. In deployed environments, set a strong `INTERNAL_API_KEY`
+and `INTERNAL_API_KEY_ENABLED=true`; when disabled, these routes are unauthenticated.
+
+#### Repair a confirmed stale installation
+
+An uninstall event that happened before lifecycle handling was deployed cannot be
+replayed. After confirming the exact stale tenant and Teams identity, issue the
+disconnect call above once. Supplying both known `teamId` and `conversationId` gives
+the narrowest match. This changes only that active document to `enabled: false` and
+sets `disconnectedAt`/`updatedAt`; it does not disable other installations or delete
+history.
+
 ### Send to Teams
 ```bash
 curl -X POST http://localhost:8000/api/risks/RSK-OP-0821/send-to-teams \

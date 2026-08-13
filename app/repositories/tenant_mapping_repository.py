@@ -29,3 +29,7 @@ class TenantMappingRepository:
 
     async def get_enabled_by_tenant(self, tenant_id: str) -> Optional[dict[str, Any]]:
         return await self._collection.find_one({"tenantId": tenant_id, "enabled": True})
+
+    async def list_all(self) -> list[dict[str, Any]]:
+        cursor = self._collection.find({}).sort("accountId", 1)
+        return [document async for document in cursor]

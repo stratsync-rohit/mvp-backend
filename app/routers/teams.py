@@ -13,8 +13,11 @@ from app.schemas.teams import (
     TeamDestinationCreate,
     TeamDestinationResponse,
     TeamsInstallationCreate,
+    TeamsInstallationDisconnect,
+    TeamsInstallationDisconnectResponse,
     TeamsInstallationRegistrationResponse,
     TeamsInstallationResponse,
+    TeamsIntegrationOverviewItem,
     TeamsIntegrationStatus,
     TenantMappingCreate,
     TenantMappingResponse,
@@ -81,6 +84,26 @@ async def register_installation(
         "message": "Teams installation registered",
         "installation": strip_mongo_id(installation),
     }
+
+
+@router.post(
+    "/installations/disconnect",
+    response_model=TeamsInstallationDisconnectResponse,
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def disconnect_installation(
+    payload: TeamsInstallationDisconnect, service: InstallationServiceDep
+) -> dict:
+    return await service.disconnect(payload)
+
+
+@router.get(
+    "/integrations",
+    response_model=list[TeamsIntegrationOverviewItem],
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def list_integrations(service: InstallationServiceDep) -> list[dict]:
+    return await service.integrations_overview()
 
 
 @router.get(
