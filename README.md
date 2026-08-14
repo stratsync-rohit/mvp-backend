@@ -319,8 +319,14 @@ history.
 ```bash
 curl -X POST http://localhost:8000/api/risks/RSK-OP-0821/send-to-teams \
   -H "Content-Type: application/json" \
-  -d '{"requestedBy": "user@example.com"}'
+  -d '{"installationId": "MONGODB_OBJECT_ID", "requestedBy": "user@example.com"}'
 ```
+
+The browser obtains safe installation identifiers from
+`GET /api/teams/installation-summaries/{accountId}`. An explicit
+`installationId` always takes precedence over `risk.notificationRoute` and is
+resolved together with the current account. Route-based/legacy resolution is
+used only when `installationId` is omitted.
 
 Optional idempotency protection:
 ```bash
@@ -374,9 +380,10 @@ If `INTERNAL_API_KEY_ENABLED=true`, add `-H "X-Internal-API-Key: <your-key>"` to
 
 1. Validate the risk exists (404 if not).
 2. Load the **latest** risk document from MongoDB.
-3. Read `risk.accountId`.
-4. Look up the Teams destination for that `accountId` (404 if not configured).
-5. Verify the destination is `enabled` (409 if disabled).
+3. Use the trusted current account context.
+4. If supplied, resolve the exact active installation by current account plus
+   `installationId`; otherwise use the existing route/legacy resolver.
+5. Reject an inactive selected installation with 409 and never fall back.
 6. Build the clean initial-notification payload (no Adaptive Card JSON).
 7. Generate a UUID `eventId` used as the correlation ID.
 8. Insert a `pending` notification log.

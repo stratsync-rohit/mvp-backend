@@ -213,3 +213,70 @@ async def test_route_send_is_exact_and_never_falls_back(
         "No active Microsoft Teams destination is configured for route 'executive'."
     )
     assert len(captured) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_installation_selection_is_exact_and_account_scoped(
+    async_client, sample_risk_payload, monkeypatch
+):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"status": "received"}
+
+    from app.services.n8n_service import N8nService
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    sample_risk_payload["notificationRoute"] = "automatic-route"
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
+        "tenantId": "tenant-a", "clientName": "Client A", "enabled": True,
+    })
+    await async_client.put("/api/teams/tenant-mappings/ACC-002", json={
+        "tenantId": "tenant-b", "clientName": "Client B", "enabled": True,
+    })
+
+    async def install(tenant, team, channel):
+        response = await async_client.post("/api/teams/installations", json={
+            "tenantId": tenant, "teamId": team, "channelId": channel,
+            "conversationId": f"conversation-{team}",
+            "serviceUrl": "https://example.test/", "botAppId": "bot",
+        })
+        return response.json()["installation"]["installationId"]
+
+    sales_id = await install("tenant-a", "sales-team", "sales-channel")
+    dev_id = await install("tenant-a", "dev-team", "dev-channel")
+    finance_id = await install("tenant-b", "finance-team", "finance-channel")
+
+    sent = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"installationId": dev_id},
+    )
+    assert sent.status_code == 200
+    assert captured[-1]["teamsDestination"]["channelId"] == "dev-channel"
+
+    cross_account = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"installationId": finance_id},
+    )
+    assert cross_account.status_code == 404
+    assert len(captured) == 1
+
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-a", "teamId": "sales-team"},
+    )
+    disconnected = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"installationId": sales_id},
+    )
+    assert disconnected.status_code == 409
+    assert disconnected.json()["detail"] == (
+        "Microsoft Teams destination is no longer connected."
+    )
+    unknown = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"installationId": "not-an-object-id"},
+    )
+    assert unknown.status_code == 404
+    assert len(captured) == 1

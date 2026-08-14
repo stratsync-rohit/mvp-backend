@@ -370,3 +370,43 @@ async def test_active_route_unique_per_account_but_shared_across_accounts(async_
         json={"routeKey": "finance"},
     )
     assert historical.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_browser_safe_installation_summaries_are_account_scoped(async_client):
+    await create_mapping(async_client, "ACC-001", "tenant-1")
+    await create_mapping(async_client, "ACC-002", "tenant-2")
+    await async_client.post("/api/teams/installations", json={
+        **INSTALLATION, "teamName": "Client A", "channelName": "Sales",
+        "channelId": "sales-channel",
+    })
+    await async_client.post("/api/teams/installations", json={
+        **INSTALLATION, "tenantId": "tenant-2", "teamId": "team-b",
+        "conversationId": "conversation-b", "teamName": "Client B",
+        "channelName": "Finance", "channelId": "finance-channel",
+    })
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "team-1"},
+    )
+
+    account_a = (await async_client.get(
+        "/api/teams/installation-summaries/ACC-001"
+    )).json()
+    account_b = (await async_client.get(
+        "/api/teams/installation-summaries/ACC-002"
+    )).json()
+    assert len(account_a) == len(account_b) == 1
+    assert account_a[0]["channelName"] == "Sales"
+    assert account_a[0]["connected"] is False
+    assert account_b[0]["channelName"] == "Finance"
+    assert account_b[0]["connected"] is True
+    assert set(account_a[0]) == {
+        "installationId", "teamName", "channelName", "connected", "enabled",
+        "connectedAt", "disconnectedAt",
+    }
+    forbidden = {
+        "serviceUrl", "conversationId", "channelId", "botAppId",
+        "connectedById", "connectedByAadObjectId", "tenantId", "accountId",
+    }
+    assert not forbidden.intersection(account_a[0])

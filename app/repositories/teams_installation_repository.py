@@ -81,6 +81,15 @@ class TeamsInstallationRepository:
             {"accountId": account_id, "routeKey": route_key, "enabled": True}
         )
 
+    async def get_by_id(
+        self, account_id: str, installation_id: str
+    ) -> Optional[dict[str, Any]]:
+        if not ObjectId.is_valid(installation_id):
+            return None
+        return await self._collection.find_one(
+            {"_id": ObjectId(installation_id), "accountId": account_id}
+        )
+
     async def assign_route(
         self, account_id: str, installation_id: str, route_key: str
     ) -> Optional[dict[str, Any]]:

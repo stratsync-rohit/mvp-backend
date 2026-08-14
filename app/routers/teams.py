@@ -18,6 +18,7 @@ from app.schemas.teams import (
     TeamsInstallationRegistrationResponse,
     TeamsInstallationResponse,
     TeamsInstallationRouteUpdate,
+    TeamsInstallationSummary,
     TeamsIntegrationOverviewItem,
     TeamsIntegrationStatus,
     TenantMappingCreate,
@@ -27,7 +28,7 @@ from app.schemas.teams import (
 from app.services.teams_destination_service import TeamsDestinationService
 from app.services.teams_installation_service import TeamsInstallationService
 from app.services.tenant_mapping_service import TenantMappingService
-from app.utils.serializers import strip_mongo_id
+from app.utils.serializers import strip_mongo_id, strip_mongo_id_list
 
 router = APIRouter(prefix="/api/teams", tags=["Teams Destinations"])
 
@@ -124,12 +125,26 @@ async def get_integration_status(
 
 
 @router.get(
-    "/installations/{accountId}", response_model=list[TeamsInstallationResponse]
+    "/installations/{accountId}",
+    response_model=list[TeamsInstallationResponse],
+    dependencies=[Depends(verify_internal_api_key)],
 )
 async def list_installations(
     accountId: str, service: InstallationServiceDep
 ) -> list[dict]:
     return [serialize_installation(item) for item in await service.list_by_account(accountId)]
+
+
+@router.get(
+    "/installation-summaries/{accountId}",
+    response_model=list[TeamsInstallationSummary],
+    summary="List browser-safe Teams destinations for an account",
+)
+async def list_installation_summaries(
+    accountId: str, service: InstallationServiceDep
+) -> list[dict]:
+    # accountId is the existing MVP selected-account context, not production auth.
+    return await service.list_summaries_by_account(accountId)
 
 
 @router.patch(

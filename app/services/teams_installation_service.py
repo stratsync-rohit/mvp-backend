@@ -6,6 +6,7 @@ from app.exceptions.handlers import (
     MicrosoftTenantNotMappedError,
     TeamsInstallationNotFoundError,
     TeamsInstallationNotConfiguredError,
+    TeamsInstallationUnavailableError,
     TeamsRouteConflictError,
     TeamsRouteNotConfiguredError,
     TeamsRouteRequiredError,
@@ -182,6 +183,19 @@ class TeamsInstallationService:
             raise TeamsRouteRequiredError()
         return active[0]
 
+    async def resolve_selected_destination(
+        self, account_id: str, installation_id: str
+    ) -> dict[str, Any]:
+        """Resolve an explicit browser selection within its trusted account scope."""
+        installation = await self._repo.get_by_id(account_id, installation_id)
+        if not installation:
+            # The same response covers malformed, unknown, and cross-account IDs
+            # without disclosing whether another account owns the identifier.
+            raise TeamsInstallationNotFoundError()
+        if not installation.get("enabled", False):
+            raise TeamsInstallationUnavailableError()
+        return installation
+
     async def assign_route(
         self, account_id: str, installation_id: str, route_key: str
     ) -> dict[str, Any]:
@@ -222,6 +236,21 @@ class TeamsInstallationService:
 
     async def list_by_account(self, account_id: str) -> list[dict[str, Any]]:
         return await self._repo.list_by_account(account_id)
+
+    async def list_summaries_by_account(self, account_id: str) -> list[dict[str, Any]]:
+        installations = await self._repo.list_by_account(account_id)
+        return [
+            {
+                "installationId": str(item["_id"]),
+                "teamName": item.get("teamName"),
+                "channelName": item.get("channelName"),
+                "connected": item.get("enabled", False) is True,
+                "enabled": item.get("enabled", False) is True,
+                "connectedAt": item.get("connectedAt"),
+                "disconnectedAt": item.get("disconnectedAt"),
+            }
+            for item in installations
+        ]
 
     async def integrations_overview(self) -> list[dict[str, Any]]:
         mappings = await self._tenant_mapping_repo.list_all()

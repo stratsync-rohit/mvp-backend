@@ -144,6 +144,11 @@ async def send_to_teams(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict:
     requested_by = payload.requestedBy if payload else None
+    installation_id = payload.installationId if payload else None
     return await service.send_to_teams(
-        account_id=account_id, risk_id=riskId, requested_by=requested_by, idempotency_key=idempotency_key
+        account_id=account_id,
+        risk_id=riskId,
+        requested_by=requested_by,
+        installation_id=installation_id,
+        idempotency_key=idempotency_key,
     )

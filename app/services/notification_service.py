@@ -53,6 +53,7 @@ class NotificationService:
         account_id: str,
         risk_id: str,
         requested_by: Optional[str] = None,
+        installation_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> dict[str, Any]:
         # Load within account scope before any idempotency or destination lookup.
@@ -72,9 +73,14 @@ class NotificationService:
                 return existing["result"]
 
         # 2. Resolve the active installation captured by the bot.
-        destination = await self._installation_service.resolve_active_destination(
-            account_id, risk.get("notificationRoute")
-        )
+        if installation_id:
+            destination = await self._installation_service.resolve_selected_destination(
+                account_id, installation_id
+            )
+        else:
+            destination = await self._installation_service.resolve_active_destination(
+                account_id, risk.get("notificationRoute")
+            )
 
         # 4. Build clean notification payload
         notification = await self._risk_service.get_notification_payload(account_id, risk_id)

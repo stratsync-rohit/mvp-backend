@@ -49,6 +49,17 @@ class TeamsInstallationResponse(TeamsInstallationCreate):
     disconnectedAt: Optional[datetime] = None
 
 
+class TeamsInstallationSummary(BaseModel):
+    """Browser-safe installation projection for one selected account."""
+    installationId: str
+    teamName: Optional[str] = None
+    channelName: Optional[str] = None
+    connected: bool
+    enabled: bool
+    connectedAt: Optional[datetime] = None
+    disconnectedAt: Optional[datetime] = None
+
+
 class TeamsInstallationRegistrationResponse(BaseModel):
     success: bool
     message: str
@@ -130,6 +141,7 @@ class TeamsIntegrationStatus(BaseModel):
 
 class SendToTeamsRequest(BaseModel):
     requestedBy: Optional[str] = None
+    installationId: Optional[str] = Field(default=None, min_length=1)
 
     @field_validator("requestedBy")
     @classmethod

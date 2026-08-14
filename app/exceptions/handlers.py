@@ -81,6 +81,14 @@ class TeamsInstallationNotFoundError(AppError):
         super().__init__("Microsoft Teams installation not found.", status.HTTP_404_NOT_FOUND)
 
 
+class TeamsInstallationUnavailableError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Microsoft Teams destination is no longer connected.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
 class MicrosoftTenantNotMappedError(AppError):
     def __init__(self):
         super().__init__(
