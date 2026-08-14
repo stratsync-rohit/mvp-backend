@@ -24,7 +24,12 @@ async def mock_mongo() -> AsyncGenerator[None, None]:
 
 @pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+    # Default MVP/internal account context for existing client-route tests.
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+        params={"accountId": "ACC-001"},
+    ) as client:
         yield client
 
 

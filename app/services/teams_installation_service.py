@@ -150,6 +150,10 @@ class TeamsInstallationService:
     async def get_active(self, account_id: str) -> dict[str, Any]:
         installation = await self._repo.get_active(account_id)
         if not installation:
+            logger.warning(
+                "teams_destination_not_found_for_account",
+                extra={"accountId": account_id},
+            )
             raise TeamsInstallationNotConfiguredError()
         return installation
 

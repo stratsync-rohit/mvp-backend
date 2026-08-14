@@ -66,7 +66,6 @@ class RiskCreate(StrictModel):
 
 class RiskUpdate(StrictModel):
     """PATCH fields; riskId/createdAt/updatedAt are deliberately unavailable."""
-    accountId: str | None = None
     title: str | None = None
     severity: str | None = None
     status: str | None = None

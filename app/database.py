@@ -56,8 +56,26 @@ async def create_indexes() -> None:
     assert db is not None
 
     # risks collection
-    await db.risks.create_index("riskId", unique=True)
     await db.risks.create_index("accountId")
+    duplicate_risk = None
+    duplicate_pipeline = [
+        {"$group": {"_id": {"accountId": "$accountId", "riskId": "$riskId"}, "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gt": 1}}},
+        {"$limit": 1},
+    ]
+    async for item in db.risks.aggregate(duplicate_pipeline):
+        duplicate_risk = item["_id"]
+    if duplicate_risk:
+        raise RuntimeError(
+            "Cannot enforce unique risks(accountId, riskId) index: "
+            f"duplicate pair {duplicate_risk!r} exists"
+        )
+    risk_indexes = await db.risks.index_information()
+    global_risk_index = risk_indexes.get("riskId_1")
+    if global_risk_index:
+        # Existing documents were checked before changing index topology.
+        await db.risks.drop_index("riskId_1")
+    await db.risks.create_index([("accountId", 1), ("riskId", 1)], unique=True)
     await db.risks.create_index("severity")
     await db.risks.create_index("status")
     await db.risks.create_index("createdAt")

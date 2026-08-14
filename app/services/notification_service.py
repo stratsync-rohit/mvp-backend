@@ -50,14 +50,19 @@ class NotificationService:
 
     async def send_to_teams(
         self,
+        account_id: str,
         risk_id: str,
         requested_by: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> dict[str, Any]:
+        # Load within account scope before any idempotency or destination lookup.
+        risk = await self._risk_service.get_risk(account_id, risk_id)
+        idempotency_scope = f"{IDEMPOTENCY_SCOPE_SEND_TO_TEAMS}:{account_id}"
+
         # 0. Idempotency short-circuit
         if idempotency_key:
             existing = await self._idempotency_repo.get(
-                idempotency_key, IDEMPOTENCY_SCOPE_SEND_TO_TEAMS
+                idempotency_key, idempotency_scope
             )
             if existing:
                 logger.info(
@@ -66,15 +71,11 @@ class NotificationService:
                 )
                 return existing["result"]
 
-        # 1. Load latest risk (raises RiskNotFoundError if missing)
-        risk = await self._risk_service.get_risk(risk_id)
-        account_id = risk["accountId"]
-
         # 2. Resolve the active installation captured by the bot.
         destination = await self._installation_service.get_active(account_id)
 
         # 4. Build clean notification payload
-        notification = await self._risk_service.get_notification_payload(risk_id)
+        notification = await self._risk_service.get_notification_payload(account_id, risk_id)
 
         # 5. Generate event/correlation id + pending log
         event_id = str(uuid.uuid4())
@@ -135,7 +136,7 @@ class NotificationService:
 
         if idempotency_key:
             await self._idempotency_repo.save_result(
-                idempotency_key, IDEMPOTENCY_SCOPE_SEND_TO_TEAMS, result
+                idempotency_key, idempotency_scope, result
             )
 
         return result

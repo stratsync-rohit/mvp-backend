@@ -22,7 +22,7 @@ class RiskRepository:
         now = self._now()
         risk_doc = {**risk_doc, "createdAt": now, "updatedAt": now}
         await self._collection.insert_one(risk_doc)
-        return await self.get_by_risk_id(risk_doc["riskId"])
+        return await self.get_by_id(risk_doc["accountId"], risk_doc["riskId"])
 
     async def _backfill_legacy_timestamps(self, risk_doc: dict[str, Any]) -> dict[str, Any]:
         """Lazily add root timestamps required by the API to legacy documents."""
@@ -43,32 +43,33 @@ class RiskRepository:
             risk_doc.update(missing)
         return risk_doc
 
-    async def get_by_risk_id(self, risk_id: str) -> Optional[dict[str, Any]]:
-        risk_doc = await self._collection.find_one({"riskId": risk_id})
+    async def get_by_id(self, account_id: str, risk_id: str) -> Optional[dict[str, Any]]:
+        risk_doc = await self._collection.find_one(
+            {"accountId": account_id, "riskId": risk_id}
+        )
         if risk_doc is None:
             return None
         return await self._backfill_legacy_timestamps(risk_doc)
 
-    async def exists(self, risk_id: str) -> bool:
-        count = await self._collection.count_documents({"riskId": risk_id}, limit=1)
+    async def exists(self, account_id: str, risk_id: str) -> bool:
+        count = await self._collection.count_documents(
+            {"accountId": account_id, "riskId": risk_id}, limit=1
+        )
         return count > 0
 
     async def list(
         self,
+        account_id: str,
         severity: Optional[str] = None,
         status: Optional[str] = None,
-        account_id: Optional[str] = None,
         limit: int = 50,
         skip: int = 0,
     ) -> list[dict[str, Any]]:
-        query: dict[str, Any] = {}
+        query: dict[str, Any] = {"accountId": account_id}
         if severity:
             query["severity"] = severity
         if status:
             query["status"] = status
-        if account_id:
-            query["accountId"] = account_id
-
         cursor = (
             self._collection.find(query)
             .sort("createdAt", -1)
@@ -77,23 +78,28 @@ class RiskRepository:
         )
         return [await self._backfill_legacy_timestamps(doc) async for doc in cursor]
 
-    async def update(self, risk_id: str, update_fields: dict[str, Any]) -> Optional[dict[str, Any]]:
+    async def update(self, account_id: str, risk_id: str, update_fields: dict[str, Any]) -> Optional[dict[str, Any]]:
         update_fields = dict(update_fields)
         update_fields["updatedAt"] = self._now()
         update_fields.pop("riskId", None)
         update_fields.pop("createdAt", None)
+        update_fields.pop("accountId", None)
 
-        await self._collection.update_one({"riskId": risk_id}, {"$set": update_fields})
-        return await self.get_by_risk_id(risk_id)
+        await self._collection.update_one(
+            {"accountId": account_id, "riskId": risk_id}, {"$set": update_fields}
+        )
+        return await self.get_by_id(account_id, risk_id)
 
-    async def delete(self, risk_id: str) -> bool:
-        result = await self._collection.delete_one({"riskId": risk_id})
+    async def delete(self, account_id: str, risk_id: str) -> bool:
+        result = await self._collection.delete_one(
+            {"accountId": account_id, "riskId": risk_id}
+        )
         return result.deleted_count > 0
 
-    async def set_tracking(self, risk_id: str, tracked_by: Optional[str]) -> Optional[dict[str, Any]]:
+    async def set_tracking(self, account_id: str, risk_id: str, tracked_by: Optional[str]) -> Optional[dict[str, Any]]:
         now = self._now()
         await self._collection.update_one(
-            {"riskId": risk_id},
+            {"accountId": account_id, "riskId": risk_id},
             {
                 "$set": {
                     "tracking.enabled": True,
@@ -103,14 +109,14 @@ class RiskRepository:
                 }
             },
         )
-        return await self.get_by_risk_id(risk_id)
+        return await self.get_by_id(account_id, risk_id)
 
     async def set_assignment(
-        self, risk_id: str, assigned_to: str, assigned_by: str
+        self, account_id: str, risk_id: str, assigned_to: str, assigned_by: str
     ) -> Optional[dict[str, Any]]:
         now = self._now()
         await self._collection.update_one(
-            {"riskId": risk_id},
+            {"accountId": account_id, "riskId": risk_id},
             {
                 "$set": {
                     "assignment.assignedTo": assigned_to,
@@ -120,4 +126,4 @@ class RiskRepository:
                 }
             },
         )
-        return await self.get_by_risk_id(risk_id)
+        return await self.get_by_id(account_id, risk_id)

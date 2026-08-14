@@ -14,6 +14,7 @@ class AssignActionPayload(BaseModel):
 
 class RiskActionRequest(BaseModel):
     riskId: str
+    tenantId: str = Field(min_length=1)
     actionKey: ActionKey
     payload: dict[str, Any] | None = None
 

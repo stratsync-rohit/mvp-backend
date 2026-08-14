@@ -8,7 +8,9 @@ global mutable state beyond the Mongo client itself.
 """
 from typing import Annotated
 
-from fastapi import Depends, Header, status
+import re
+
+from fastapi import Depends, Header, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config import Settings, get_settings
@@ -30,6 +32,24 @@ from app.services.teams_installation_service import TeamsInstallationService
 from app.services.tenant_mapping_service import TenantMappingService
 
 DbDep = Annotated[AsyncIOMotorDatabase, Depends(get_database)]
+
+
+async def get_current_account_id(
+    account_id_query: Annotated[str | None, Query(alias="accountId")] = None,
+    x_account_id: Annotated[str | None, Header(alias="X-Account-Id")] = None,
+) -> str:
+    """MVP/internal account context; production must replace this with auth claims."""
+    if account_id_query and x_account_id and account_id_query != x_account_id:
+        raise HTTPException(status_code=400, detail="Conflicting account context")
+    account_id = account_id_query or x_account_id
+    if not account_id:
+        raise HTTPException(status_code=400, detail="Account context is required")
+    if not re.fullmatch(r"ACC-[A-Za-z0-9]+", account_id):
+        raise HTTPException(status_code=400, detail="Invalid account context")
+    return account_id
+
+
+CurrentAccountIdDep = Annotated[str, Depends(get_current_account_id)]
 
 
 def get_risk_repository(db: DbDep) -> RiskRepository:
@@ -113,8 +133,11 @@ def get_notification_service(
 
 def get_action_service(
     risk_service: Annotated[RiskService, Depends(get_risk_service)],
+    tenant_mapping_repo: Annotated[
+        TenantMappingRepository, Depends(get_tenant_mapping_repository)
+    ],
 ) -> ActionService:
-    return ActionService(risk_service)
+    return ActionService(risk_service, tenant_mapping_repo)
 
 
 async def verify_internal_api_key(
