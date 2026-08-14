@@ -73,3 +73,11 @@ class TenantMappingRepository:
     async def list_all(self) -> list[dict[str, Any]]:
         cursor = self._collection.find({}).sort("accountId", 1)
         return [document async for document in cursor]
+
+    async def list_account_metadata(self) -> list[dict[str, Any]]:
+        """Read only fields safe for the browser-facing MVP selector."""
+        cursor = self._collection.find(
+            {"accountId": {"$type": "string"}},
+            {"_id": 0, "accountId": 1, "clientName": 1},
+        ).sort("accountId", 1)
+        return [document async for document in cursor]

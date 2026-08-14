@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import close_mongo_connection, connect_to_mongo
 from app.exceptions.handlers import register_exception_handlers
-from app.routers import health, notification_logs, risk_actions, risks, teams
+from app.routers import accounts, health, notification_logs, risk_actions, risks, teams
 from app.utils.logger import configure_logging, get_logger
 from app.utils.middleware import CorrelationIdMiddleware
 
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(health.router)
+    app.include_router(accounts.router)
     app.include_router(risks.router)
     app.include_router(risk_actions.router)
     app.include_router(teams.router)

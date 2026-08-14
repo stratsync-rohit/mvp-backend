@@ -24,3 +24,17 @@ class TenantMappingService:
         if not mapping:
             raise TenantMappingNotFoundError()
         return mapping
+
+    async def list_accounts(self) -> list[dict[str, str]]:
+        """Return one minimal entry per account, including disabled mappings."""
+        accounts: dict[str, dict[str, str]] = {}
+        for mapping in await self._repo.list_account_metadata():
+            account_id = mapping["accountId"]
+            account_name = mapping.get("clientName") or account_id
+            existing = accounts.get(account_id)
+            if existing is None or existing["accountName"] == account_id:
+                accounts[account_id] = {
+                    "accountId": account_id,
+                    "accountName": account_name,
+                }
+        return [accounts[account_id] for account_id in sorted(accounts)]
