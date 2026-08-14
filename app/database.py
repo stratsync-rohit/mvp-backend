@@ -112,6 +112,15 @@ async def create_indexes() -> None:
         [("accountId", 1), ("enabled", 1), ("updatedAt", -1)]
     )
     await db.teams_installations.create_index(
+        [("accountId", 1), ("routeKey", 1), ("enabled", 1)]
+    )
+    await db.teams_installations.create_index(
+        [("accountId", 1), ("routeKey", 1)],
+        unique=True,
+        partialFilterExpression={"enabled": True, "routeKey": {"$type": "string"}},
+        name="unique_active_account_route",
+    )
+    await db.teams_installations.create_index(
         [("accountId", 1), ("tenantId", 1), ("teamId", 1)],
         unique=True,
         partialFilterExpression={"teamId": {"$type": "string"}},

@@ -40,7 +40,9 @@ class TeamsInstallationCreate(BaseModel):
 
 
 class TeamsInstallationResponse(TeamsInstallationCreate):
+    installationId: str
     accountId: str
+    routeKey: Optional[str] = None
     createdAt: datetime
     updatedAt: datetime
     connectedAt: Optional[datetime] = None
@@ -70,6 +72,17 @@ class TeamsInstallationDisconnectResponse(BaseModel):
     disconnected: bool
     message: str
     accountId: str
+
+
+class TeamsInstallationRouteUpdate(BaseModel):
+    routeKey: str
+
+    @field_validator("routeKey")
+    @classmethod
+    def validate_route_key(cls, value: str) -> str:
+        from app.utils.route_keys import normalize_route_key
+
+        return normalize_route_key(value)
 
 
 class TeamsIntegrationOverviewItem(BaseModel):

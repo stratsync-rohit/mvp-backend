@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
+from bson import ObjectId
 
 
 class TeamsInstallationRepository:
@@ -71,6 +72,25 @@ class TeamsInstallationRepository:
     async def get_active(self, account_id: str) -> Optional[dict[str, Any]]:
         return await self._collection.find_one(
             {"accountId": account_id, "enabled": True}, sort=[("updatedAt", -1)]
+        )
+
+    async def get_active_by_route(
+        self, account_id: str, route_key: str
+    ) -> Optional[dict[str, Any]]:
+        return await self._collection.find_one(
+            {"accountId": account_id, "routeKey": route_key, "enabled": True}
+        )
+
+    async def assign_route(
+        self, account_id: str, installation_id: str, route_key: str
+    ) -> Optional[dict[str, Any]]:
+        if not ObjectId.is_valid(installation_id):
+            return None
+        now = datetime.now(timezone.utc)
+        return await self._collection.find_one_and_update(
+            {"_id": ObjectId(installation_id), "accountId": account_id},
+            {"$set": {"routeKey": route_key, "updatedAt": now}},
+            return_document=ReturnDocument.AFTER,
         )
 
     async def list_by_account(self, account_id: str) -> list[dict[str, Any]]:

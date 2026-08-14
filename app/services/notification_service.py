@@ -72,7 +72,9 @@ class NotificationService:
                 return existing["result"]
 
         # 2. Resolve the active installation captured by the bot.
-        destination = await self._installation_service.get_active(account_id)
+        destination = await self._installation_service.resolve_active_destination(
+            account_id, risk.get("notificationRoute")
+        )
 
         # 4. Build clean notification payload
         notification = await self._risk_service.get_notification_payload(account_id, risk_id)

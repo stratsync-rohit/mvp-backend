@@ -49,6 +49,31 @@ async def test_patch_preserves_created_at_and_protects_fields(async_client, samp
 
 
 @pytest.mark.asyncio
+async def test_notification_route_create_and_patch_normalize(async_client, sample_risk_payload):
+    sample_risk_payload["notificationRoute"] = "  Risk Alerts  "
+    created = await async_client.post("/api/risks", json=sample_risk_payload)
+    assert created.status_code == 201
+    assert created.json()["notificationRoute"] == "risk-alerts"
+
+    updated = await async_client.patch(
+        "/api/risks/RSK-OP-0821", json={"notificationRoute": "Executive_Team"}
+    )
+    assert updated.status_code == 200
+    assert updated.json()["notificationRoute"] == "executive_team"
+    assert (await async_client.patch(
+        "/api/risks/RSK-OP-0821", json={"accountId": "ACC-002"}
+    )).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_invalid_or_empty_notification_route_rejected(async_client, sample_risk_payload):
+    for route in ("   ", "finance/other"):
+        sample_risk_payload["notificationRoute"] = route
+        response = await async_client.post("/api/risks", json=sample_risk_payload)
+        assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_legacy_document_normalizes_without_migration(async_client, legacy_risk_document):
     await mongo_manager.database.risks.insert_one(legacy_risk_document)
     response = await async_client.get("/api/risks/RSK-LEGACY")
@@ -128,3 +153,63 @@ async def test_send_to_teams_rejects_inactive_installation(async_client, sample_
     assert response.json() == {
         "detail": "Microsoft Teams integration is not connected for this account."
     }
+
+
+@pytest.mark.asyncio
+async def test_multiple_installations_without_route_is_controlled(
+    async_client, sample_risk_payload, mock_n8n_success
+):
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    await _install_teams(async_client)
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "tenant-1", "teamId": "team-2", "channelId": "channel-2",
+        "conversationId": "conversation-2", "serviceUrl": "https://example.test/", "botAppId": "bot",
+    })
+    response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Multiple Microsoft Teams destinations are connected. notificationRoute is required."
+    )
+
+
+@pytest.mark.asyncio
+async def test_route_send_is_exact_and_never_falls_back(
+    async_client, sample_risk_payload, monkeypatch
+):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"status": "received"}
+
+    from app.services.n8n_service import N8nService
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
+        "tenantId": "tenant-1", "clientName": "Client A", "enabled": True})
+    for suffix in ("finance", "operations"):
+        registered = (await async_client.post("/api/teams/installations", json={
+            "tenantId": "tenant-1", "teamId": f"team-{suffix}",
+            "channelId": f"channel-{suffix}", "conversationId": f"conversation-{suffix}",
+            "serviceUrl": "https://example.test/", "botAppId": "bot",
+        })).json()["installation"]
+        assigned = await async_client.patch(
+            f"/api/teams/installations/ACC-001/{registered['installationId']}/route",
+            json={"routeKey": suffix.title()},
+        )
+        assert assigned.status_code == 200
+
+    sample_risk_payload["notificationRoute"] = "finance"
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    sent = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert sent.status_code == 200
+    assert captured[0]["teamsDestination"]["channelId"] == "channel-finance"
+
+    await async_client.patch(
+        "/api/risks/RSK-OP-0821", json={"notificationRoute": "executive"}
+    )
+    missing = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert missing.status_code == 409
+    assert missing.json()["detail"] == (
+        "No active Microsoft Teams destination is configured for route 'executive'."
+    )
+    assert len(captured) == 1

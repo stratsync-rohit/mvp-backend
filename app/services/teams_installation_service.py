@@ -4,7 +4,11 @@ from typing import Any
 from app.exceptions.handlers import (
     MicrosoftTenantMappingDisabledError,
     MicrosoftTenantNotMappedError,
+    TeamsInstallationNotFoundError,
     TeamsInstallationNotConfiguredError,
+    TeamsRouteConflictError,
+    TeamsRouteNotConfiguredError,
+    TeamsRouteRequiredError,
 )
 from pymongo.errors import DuplicateKeyError
 from app.repositories.tenant_mapping_repository import TenantMappingRepository
@@ -35,7 +39,12 @@ class TeamsInstallationService:
         )
         scoped_fields = {"accountId": mapping["accountId"], **fields}
         previous = await self._repo.get_matching(scoped_fields)
-        installation = await self._repo.upsert(scoped_fields)
+        try:
+            installation = await self._repo.upsert(scoped_fields)
+        except DuplicateKeyError as exc:
+            # A historical routed installation may be reactivated only when
+            # another active destination has not claimed that account route.
+            raise TeamsRouteConflictError() from exc
         if previous and not previous.get("enabled", False):
             logger.info(
                 "teams_installation_reactivated",
@@ -155,6 +164,35 @@ class TeamsInstallationService:
                 extra={"accountId": account_id},
             )
             raise TeamsInstallationNotConfiguredError()
+        return installation
+
+    async def resolve_active_destination(
+        self, account_id: str, route_key: str | None = None
+    ) -> dict[str, Any]:
+        if route_key is not None:
+            installation = await self._repo.get_active_by_route(account_id, route_key)
+            if not installation:
+                raise TeamsRouteNotConfiguredError(route_key)
+            return installation
+
+        active = await self._repo.list_active_by_account(account_id)
+        if not active:
+            raise TeamsInstallationNotConfiguredError()
+        if len(active) > 1:
+            raise TeamsRouteRequiredError()
+        return active[0]
+
+    async def assign_route(
+        self, account_id: str, installation_id: str, route_key: str
+    ) -> dict[str, Any]:
+        try:
+            installation = await self._repo.assign_route(
+                account_id, installation_id, route_key
+            )
+        except DuplicateKeyError as exc:
+            raise TeamsRouteConflictError() from exc
+        if not installation:
+            raise TeamsInstallationNotFoundError()
         return installation
 
     async def integration_status(self, account_id: str) -> dict[str, Any]:

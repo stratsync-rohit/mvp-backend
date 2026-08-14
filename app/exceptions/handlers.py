@@ -52,6 +52,35 @@ class TeamsInstallationNotConfiguredError(AppError):
         )
 
 
+class TeamsRouteNotConfiguredError(AppError):
+    def __init__(self, route_key: str):
+        super().__init__(
+            f"No active Microsoft Teams destination is configured for route '{route_key}'.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
+class TeamsRouteRequiredError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Multiple Microsoft Teams destinations are connected. notificationRoute is required.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
+class TeamsRouteConflictError(AppError):
+    def __init__(self):
+        super().__init__(
+            "An active Microsoft Teams destination already uses this route for the account.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
+class TeamsInstallationNotFoundError(AppError):
+    def __init__(self):
+        super().__init__("Microsoft Teams installation not found.", status.HTTP_404_NOT_FOUND)
+
+
 class MicrosoftTenantNotMappedError(AppError):
     def __init__(self):
         super().__init__(

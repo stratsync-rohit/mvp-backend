@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.utils.route_keys import normalize_route_key
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -50,6 +52,7 @@ class Assignment(StrictModel):
 class RiskCreate(StrictModel):
     riskId: str
     accountId: str
+    notificationRoute: str | None = None
     title: str
     severity: str
     status: str = "open"
@@ -62,6 +65,11 @@ class RiskCreate(StrictModel):
     extensions: dict[str, Any] = Field(default_factory=dict)
     tracking: Tracking = Field(default_factory=Tracking)
     assignment: Assignment = Field(default_factory=Assignment)
+
+    @field_validator("notificationRoute")
+    @classmethod
+    def validate_notification_route(cls, value: str | None) -> str | None:
+        return normalize_route_key(value) if value is not None else None
 
 
 class RiskUpdate(StrictModel):
@@ -78,6 +86,12 @@ class RiskUpdate(StrictModel):
     extensions: dict[str, Any] | None = None
     tracking: Tracking | None = None
     assignment: Assignment | None = None
+    notificationRoute: str | None = None
+
+    @field_validator("notificationRoute")
+    @classmethod
+    def validate_notification_route(cls, value: str | None) -> str | None:
+        return normalize_route_key(value) if value is not None else None
 
 
 class RiskResponse(RiskCreate):

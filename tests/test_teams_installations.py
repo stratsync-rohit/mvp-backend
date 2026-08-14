@@ -316,3 +316,57 @@ async def test_account_with_another_active_installation_remains_connected(async_
     assert status["connected"] is True
     overview = (await async_client.get("/api/teams/integrations")).json()
     assert overview[0]["activeInstallations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_route_assignment_is_normalized_listed_and_account_scoped(async_client):
+    await create_mapping(async_client)
+    installation = (await async_client.post(
+        "/api/teams/installations", json=INSTALLATION
+    )).json()["installation"]
+    response = await async_client.patch(
+        f"/api/teams/installations/ACC-001/{installation['installationId']}/route",
+        json={"routeKey": " Risk Alerts "},
+    )
+    assert response.status_code == 200
+    assert response.json()["routeKey"] == "risk-alerts"
+    listed = (await async_client.get("/api/teams/installations/ACC-001")).json()
+    assert listed[0]["routeKey"] == "risk-alerts"
+    assert {"teamName", "channelName", "connectedByName", "enabled"} <= set(listed[0])
+
+    denied = await async_client.patch(
+        f"/api/teams/installations/ACC-002/{installation['installationId']}/route",
+        json={"routeKey": "finance"},
+    )
+    assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_active_route_unique_per_account_but_shared_across_accounts(async_client):
+    await create_mapping(async_client, "ACC-001", "tenant-1")
+    await create_mapping(async_client, "ACC-002", "tenant-2")
+
+    async def install(account_id, tenant_id, team_id):
+        body = (await async_client.post("/api/teams/installations", json={
+            **INSTALLATION, "tenantId": tenant_id, "teamId": team_id,
+            "conversationId": f"conversation-{team_id}",
+        })).json()["installation"]
+        return await async_client.patch(
+            f"/api/teams/installations/{account_id}/{body['installationId']}/route",
+            json={"routeKey": "finance"},
+        )
+
+    assert (await install("ACC-001", "tenant-1", "team-a1")).status_code == 200
+    duplicate = await install("ACC-001", "tenant-1", "team-a2")
+    assert duplicate.status_code == 409
+    assert (await install("ACC-002", "tenant-2", "team-b1")).status_code == 200
+
+    await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "tenant-1", "teamId": "team-a1"},
+    )
+    historical = await async_client.patch(
+        f"/api/teams/installations/ACC-001/{(await mongo_manager.database.teams_installations.find_one({'teamId': 'team-a2'}))['_id']}/route",
+        json={"routeKey": "finance"},
+    )
+    assert historical.status_code == 200

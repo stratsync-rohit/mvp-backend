@@ -66,6 +66,7 @@ def normalize_risk_document(document: dict[str, Any]) -> dict[str, Any]:
     return {
         "riskId": source["riskId"],
         "accountId": source["accountId"],
+        "notificationRoute": source.get("notificationRoute"),
         "title": source["title"],
         "severity": source["severity"],
         "status": source.get("status", "open"),

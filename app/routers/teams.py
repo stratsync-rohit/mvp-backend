@@ -17,6 +17,7 @@ from app.schemas.teams import (
     TeamsInstallationDisconnectResponse,
     TeamsInstallationRegistrationResponse,
     TeamsInstallationResponse,
+    TeamsInstallationRouteUpdate,
     TeamsIntegrationOverviewItem,
     TeamsIntegrationStatus,
     TenantMappingCreate,
@@ -26,9 +27,15 @@ from app.schemas.teams import (
 from app.services.teams_destination_service import TeamsDestinationService
 from app.services.teams_installation_service import TeamsInstallationService
 from app.services.tenant_mapping_service import TenantMappingService
-from app.utils.serializers import strip_mongo_id, strip_mongo_id_list
+from app.utils.serializers import strip_mongo_id
 
 router = APIRouter(prefix="/api/teams", tags=["Teams Destinations"])
+
+
+def serialize_installation(document: dict) -> dict:
+    """Expose an opaque installation identifier, never MongoDB's raw `_id` field."""
+    return {"installationId": str(document["_id"]), **strip_mongo_id(document)}
+
 
 DestinationServiceDep = Annotated[TeamsDestinationService, Depends(get_teams_destination_service)]
 InstallationServiceDep = Annotated[
@@ -82,7 +89,7 @@ async def register_installation(
     return {
         "success": True,
         "message": "Teams installation registered",
-        "installation": strip_mongo_id(installation),
+        "installation": serialize_installation(installation),
     }
 
 
@@ -122,7 +129,23 @@ async def get_integration_status(
 async def list_installations(
     accountId: str, service: InstallationServiceDep
 ) -> list[dict]:
-    return strip_mongo_id_list(await service.list_by_account(accountId))
+    return [serialize_installation(item) for item in await service.list_by_account(accountId)]
+
+
+@router.patch(
+    "/installations/{accountId}/{installationId}/route",
+    response_model=TeamsInstallationResponse,
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def assign_installation_route(
+    accountId: str,
+    installationId: str,
+    payload: TeamsInstallationRouteUpdate,
+    service: InstallationServiceDep,
+) -> dict:
+    return serialize_installation(
+        await service.assign_route(accountId, installationId, payload.routeKey)
+    )
 
 
 @router.put(
