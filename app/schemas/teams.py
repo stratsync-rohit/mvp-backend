@@ -60,6 +60,39 @@ class TeamsInstallationSummary(BaseModel):
     disconnectedAt: Optional[datetime] = None
 
 
+class TeamsChannelDestinationCreate(BaseModel):
+    tenantId: str = Field(min_length=1)
+    teamId: str = Field(min_length=1)
+    teamName: Optional[str] = None
+    channelId: str = Field(min_length=1)
+    channelName: Optional[str] = None
+    conversationId: str = Field(min_length=1)
+    serviceUrl: str = Field(min_length=1)
+    connectedByName: Optional[str] = None
+
+
+class TeamsChannelDestinationResponse(TeamsChannelDestinationCreate):
+    destinationId: str
+    accountId: str
+    enabled: bool
+    createdAt: datetime
+    updatedAt: datetime
+    connectedAt: datetime
+    disconnectedAt: Optional[datetime] = None
+
+
+class TeamsChannelDestinationRegistrationResponse(BaseModel):
+    success: bool
+    destination: TeamsChannelDestinationResponse
+
+
+class TeamsChannelDestinationSummary(BaseModel):
+    destinationId: str
+    teamName: Optional[str] = None
+    channelName: Optional[str] = None
+    connected: bool
+
+
 class TeamsInstallationRegistrationResponse(BaseModel):
     success: bool
     message: str
@@ -142,6 +175,7 @@ class TeamsIntegrationStatus(BaseModel):
 class SendToTeamsRequest(BaseModel):
     requestedBy: Optional[str] = None
     installationId: Optional[str] = Field(default=None, min_length=1)
+    destinationId: Optional[str] = Field(default=None, min_length=1)
 
     @field_validator("requestedBy")
     @classmethod

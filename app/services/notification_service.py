@@ -25,6 +25,7 @@ from app.repositories.notification_log_repository import NotificationLogReposito
 from app.services.n8n_service import N8nDeliveryException, N8nService
 from app.services.risk_service import RiskService
 from app.services.teams_installation_service import TeamsInstallationService
+from app.services.teams_channel_destination_service import TeamsChannelDestinationService
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,12 +38,14 @@ class NotificationService:
         self,
         risk_service: RiskService,
         installation_service: TeamsInstallationService,
+        channel_destination_service: TeamsChannelDestinationService,
         notification_log_repository: NotificationLogRepository,
         idempotency_repository: IdempotencyRepository,
         n8n_service: N8nService,
     ):
         self._risk_service = risk_service
         self._installation_service = installation_service
+        self._channel_destination_service = channel_destination_service
         self._log_repo = notification_log_repository
         self._idempotency_repo = idempotency_repository
         self._n8n_service = n8n_service
@@ -54,6 +57,7 @@ class NotificationService:
         risk_id: str,
         requested_by: Optional[str] = None,
         installation_id: Optional[str] = None,
+        destination_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> dict[str, Any]:
         # Load within account scope before any idempotency or destination lookup.
@@ -73,7 +77,11 @@ class NotificationService:
                 return existing["result"]
 
         # 2. Resolve the active installation captured by the bot.
-        if installation_id:
+        if destination_id:
+            destination = await self._channel_destination_service.resolve_selected(
+                account_id, destination_id
+            )
+        elif installation_id:
             destination = await self._installation_service.resolve_selected_destination(
                 account_id, installation_id
             )

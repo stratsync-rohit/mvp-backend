@@ -15,6 +15,7 @@ from pymongo.errors import DuplicateKeyError
 from app.repositories.tenant_mapping_repository import TenantMappingRepository
 from app.repositories.teams_installation_repository import TeamsInstallationRepository
 from app.schemas.teams import TeamsInstallationCreate, TeamsInstallationDisconnect
+from app.services.teams_channel_destination_service import TeamsChannelDestinationService
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,9 +26,11 @@ class TeamsInstallationService:
         self,
         repository: TeamsInstallationRepository,
         tenant_mapping_repository: TenantMappingRepository,
+        channel_destination_service: TeamsChannelDestinationService,
     ):
         self._repo = repository
         self._tenant_mapping_repo = tenant_mapping_repository
+        self._channel_destination_service = channel_destination_service
 
     async def register(self, payload: TeamsInstallationCreate) -> dict[str, Any]:
         # Sparse lifecycle events must not erase useful metadata captured by
@@ -133,6 +136,12 @@ class TeamsInstallationService:
             team_id=payload.teamId,
             conversation_id=payload.conversationId,
         )
+        if installation and installation.get("teamId"):
+            await self._channel_destination_service.disable_team(
+                account_id,
+                payload.tenantId,
+                installation["teamId"],
+            )
         event = (
             "teams_installation_disconnected"
             if installation

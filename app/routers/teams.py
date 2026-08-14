@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, status
 
 from app.dependencies import (
     get_teams_destination_service,
+    get_teams_channel_destination_service,
     get_teams_installation_service,
     get_tenant_mapping_service,
     verify_internal_api_key,
@@ -12,6 +13,10 @@ from app.dependencies import (
 from app.schemas.teams import (
     TeamDestinationCreate,
     TeamDestinationResponse,
+    TeamsChannelDestinationCreate,
+    TeamsChannelDestinationRegistrationResponse,
+    TeamsChannelDestinationResponse,
+    TeamsChannelDestinationSummary,
     TeamsInstallationCreate,
     TeamsInstallationDisconnect,
     TeamsInstallationDisconnectResponse,
@@ -26,6 +31,7 @@ from app.schemas.teams import (
     TenantMappingUpsertResponse,
 )
 from app.services.teams_destination_service import TeamsDestinationService
+from app.services.teams_channel_destination_service import TeamsChannelDestinationService
 from app.services.teams_installation_service import TeamsInstallationService
 from app.services.tenant_mapping_service import TenantMappingService
 from app.utils.serializers import strip_mongo_id, strip_mongo_id_list
@@ -38,7 +44,14 @@ def serialize_installation(document: dict) -> dict:
     return {"installationId": str(document["_id"]), **strip_mongo_id(document)}
 
 
+def serialize_channel_destination(document: dict) -> dict:
+    return {"destinationId": str(document["_id"]), **strip_mongo_id(document)}
+
+
 DestinationServiceDep = Annotated[TeamsDestinationService, Depends(get_teams_destination_service)]
+ChannelDestinationServiceDep = Annotated[
+    TeamsChannelDestinationService, Depends(get_teams_channel_destination_service)
+]
 InstallationServiceDep = Annotated[
     TeamsInstallationService, Depends(get_teams_installation_service)
 ]
@@ -161,6 +174,47 @@ async def assign_installation_route(
     return serialize_installation(
         await service.assign_route(accountId, installationId, payload.routeKey)
     )
+
+
+@router.post(
+    "/channel-destinations",
+    response_model=TeamsChannelDestinationRegistrationResponse,
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def register_channel_destination(
+    payload: TeamsChannelDestinationCreate,
+    service: ChannelDestinationServiceDep,
+) -> dict:
+    destination = await service.register(payload)
+    return {
+        "success": True,
+        "destination": serialize_channel_destination(destination),
+    }
+
+
+@router.get(
+    "/channel-destinations/{accountId}",
+    response_model=list[TeamsChannelDestinationSummary],
+)
+async def list_channel_destinations(
+    accountId: str, service: ChannelDestinationServiceDep
+) -> list[dict]:
+    # Existing selected-account MVP context; production authorization is separate.
+    return await service.list_safe_by_account(accountId)
+
+
+@router.get(
+    "/channel-destinations-internal/{accountId}",
+    response_model=list[TeamsChannelDestinationResponse],
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def list_channel_destinations_internal(
+    accountId: str, service: ChannelDestinationServiceDep
+) -> list[dict]:
+    return [
+        serialize_channel_destination(item)
+        for item in await service.list_by_account(accountId)
+    ]
 
 
 @router.put(

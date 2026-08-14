@@ -89,6 +89,14 @@ class TeamsInstallationUnavailableError(AppError):
         )
 
 
+class TeamsChannelDestinationNotFoundError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Microsoft Teams destination was not found for this account.",
+            status.HTTP_404_NOT_FOUND,
+        )
+
+
 class MicrosoftTenantNotMappedError(AppError):
     def __init__(self):
         super().__init__(

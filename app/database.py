@@ -131,6 +131,14 @@ async def create_indexes() -> None:
         partialFilterExpression={"teamId": None},
     )
 
+    # Channel destinations are distinct from the Team-level app installation.
+    await db.teams_channel_destinations.create_index("accountId")
+    await db.teams_channel_destinations.create_index([("accountId", 1), ("enabled", 1)])
+    await db.teams_channel_destinations.create_index(
+        [("accountId", 1), ("tenantId", 1), ("teamId", 1), ("channelId", 1)],
+        unique=True,
+    )
+
     # notification_logs collection
     await db.notification_logs.create_index("riskId")
     await db.notification_logs.create_index("eventId", unique=True)

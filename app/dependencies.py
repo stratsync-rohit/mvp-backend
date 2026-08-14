@@ -20,6 +20,7 @@ from app.repositories.idempotency_repository import IdempotencyRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
 from app.repositories.risk_repository import RiskRepository
 from app.repositories.teams_destination_repository import TeamsDestinationRepository
+from app.repositories.teams_channel_destination_repository import TeamsChannelDestinationRepository
 from app.repositories.teams_installation_repository import TeamsInstallationRepository
 from app.repositories.tenant_mapping_repository import TenantMappingRepository
 from app.services.action_service import ActionService
@@ -28,6 +29,7 @@ from app.services.notification_log_service import NotificationLogService
 from app.services.notification_service import NotificationService
 from app.services.risk_service import RiskService
 from app.services.teams_destination_service import TeamsDestinationService
+from app.services.teams_channel_destination_service import TeamsChannelDestinationService
 from app.services.teams_installation_service import TeamsInstallationService
 from app.services.tenant_mapping_service import TenantMappingService
 
@@ -64,6 +66,12 @@ def get_teams_installation_repository(db: DbDep) -> TeamsInstallationRepository:
     return TeamsInstallationRepository(db)
 
 
+def get_teams_channel_destination_repository(
+    db: DbDep,
+) -> TeamsChannelDestinationRepository:
+    return TeamsChannelDestinationRepository(db)
+
+
 def get_tenant_mapping_repository(db: DbDep) -> TenantMappingRepository:
     return TenantMappingRepository(db)
 
@@ -88,13 +96,31 @@ def get_teams_destination_service(
     return TeamsDestinationService(repo)
 
 
+def get_teams_channel_destination_service(
+    repo: Annotated[
+        TeamsChannelDestinationRepository,
+        Depends(get_teams_channel_destination_repository),
+    ],
+    tenant_mapping_repo: Annotated[
+        TenantMappingRepository, Depends(get_tenant_mapping_repository)
+    ],
+) -> TeamsChannelDestinationService:
+    return TeamsChannelDestinationService(repo, tenant_mapping_repo)
+
+
 def get_teams_installation_service(
     repo: Annotated[TeamsInstallationRepository, Depends(get_teams_installation_repository)],
     tenant_mapping_repo: Annotated[
         TenantMappingRepository, Depends(get_tenant_mapping_repository)
     ],
+    channel_destination_service: Annotated[
+        TeamsChannelDestinationService,
+        Depends(get_teams_channel_destination_service),
+    ],
 ) -> TeamsInstallationService:
-    return TeamsInstallationService(repo, tenant_mapping_repo)
+    return TeamsInstallationService(
+        repo, tenant_mapping_repo, channel_destination_service
+    )
 
 
 def get_tenant_mapping_service(
@@ -118,6 +144,10 @@ def get_notification_service(
     installation_service: Annotated[
         TeamsInstallationService, Depends(get_teams_installation_service)
     ],
+    channel_destination_service: Annotated[
+        TeamsChannelDestinationService,
+        Depends(get_teams_channel_destination_service),
+    ],
     log_repo: Annotated[NotificationLogRepository, Depends(get_notification_log_repository)],
     idempotency_repo: Annotated[IdempotencyRepository, Depends(get_idempotency_repository)],
     n8n_service: Annotated[N8nService, Depends(get_n8n_service)],
@@ -125,6 +155,7 @@ def get_notification_service(
     return NotificationService(
         risk_service=risk_service,
         installation_service=installation_service,
+        channel_destination_service=channel_destination_service,
         notification_log_repository=log_repo,
         idempotency_repository=idempotency_repo,
         n8n_service=n8n_service,

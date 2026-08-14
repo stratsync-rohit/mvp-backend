@@ -145,10 +145,12 @@ async def send_to_teams(
 ) -> dict:
     requested_by = payload.requestedBy if payload else None
     installation_id = payload.installationId if payload else None
+    destination_id = payload.destinationId if payload else None
     return await service.send_to_teams(
         account_id=account_id,
         risk_id=riskId,
         requested_by=requested_by,
         installation_id=installation_id,
+        destination_id=destination_id,
         idempotency_key=idempotency_key,
     )

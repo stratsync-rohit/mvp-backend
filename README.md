@@ -319,14 +319,21 @@ history.
 ```bash
 curl -X POST http://localhost:8000/api/risks/RSK-OP-0821/send-to-teams \
   -H "Content-Type: application/json" \
-  -d '{"installationId": "MONGODB_OBJECT_ID", "requestedBy": "user@example.com"}'
+  -d '{"destinationId": "MONGODB_OBJECT_ID", "requestedBy": "user@example.com"}'
 ```
 
-The browser obtains safe installation identifiers from
-`GET /api/teams/installation-summaries/{accountId}`. An explicit
-`installationId` always takes precedence over `risk.notificationRoute` and is
-resolved together with the current account. Route-based/legacy resolution is
-used only when `installationId` is omitted.
+The preferred channel-picker flow obtains safe destination identifiers from
+`GET /api/teams/channel-destinations/{accountId}` and sends
+`{"destinationId": "..."}`. A `destinationId` is resolved together with the
+current account and takes precedence over legacy `installationId` and
+`risk.notificationRoute` resolution.
+
+`teams_installations` represents Team/app lifecycle. Independently addressable
+channel routing contexts live in `teams_channel_destinations`, registered by
+the bot through the internal `POST /api/teams/channel-destinations` endpoint.
+The unique identity is `(accountId, tenantId, teamId, channelId)`. Re-observing
+a channel updates/reactivates the same document; removing a Team installation
+soft-disables every destination for that account/tenant/team.
 
 Optional idempotency protection:
 ```bash

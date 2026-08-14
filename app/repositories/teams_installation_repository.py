@@ -60,7 +60,7 @@ class TeamsInstallationRepository:
         }
         if team_id:
             query["teamId"] = team_id
-        if conversation_id:
+        elif conversation_id:
             query["conversationId"] = conversation_id
         now = datetime.now(timezone.utc)
         return await self._collection.find_one_and_update(
