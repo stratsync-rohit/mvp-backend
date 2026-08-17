@@ -66,7 +66,7 @@ class TeamsChannelDestinationCreate(BaseModel):
     teamName: Optional[str] = None
     channelId: str = Field(min_length=1)
     channelName: Optional[str] = None
-    conversationId: str = Field(min_length=1)
+    conversationId: Optional[str] = Field(default=None, min_length=1)
     serviceUrl: str = Field(min_length=1)
     connectedByName: Optional[str] = None
 

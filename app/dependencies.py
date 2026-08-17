@@ -104,8 +104,11 @@ def get_teams_channel_destination_service(
     tenant_mapping_repo: Annotated[
         TenantMappingRepository, Depends(get_tenant_mapping_repository)
     ],
+    installation_repo: Annotated[
+        TeamsInstallationRepository, Depends(get_teams_installation_repository)
+    ],
 ) -> TeamsChannelDestinationService:
-    return TeamsChannelDestinationService(repo, tenant_mapping_repo)
+    return TeamsChannelDestinationService(repo, tenant_mapping_repo, installation_repo)
 
 
 def get_teams_installation_service(

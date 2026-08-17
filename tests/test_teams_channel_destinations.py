@@ -2,6 +2,7 @@ import pytest
 
 from app.database import mongo_manager
 from app.services.n8n_service import N8nService
+from scripts.repair_teams_channel_conversations import repair_teams_channel_conversations
 
 
 async def map_tenant(async_client, account_id, tenant_id):
@@ -17,7 +18,7 @@ def destination(tenant_id, channel_id, channel_name):
         "teamName": "Stratsync.ai",
         "channelId": channel_id,
         "channelName": channel_name,
-        "conversationId": f"conversation-{channel_id}",
+        "conversationId": channel_id,
         "serviceUrl": "https://example.test/",
         "connectedByName": "Installer",
     }
@@ -276,3 +277,122 @@ async def test_delivery_result_disconnects_only_definitive_failures(
     assert stored.get("disconnectReason") == reason
     assert stored["lastDeliveryErrorCode"] == code
     assert stored["consecutiveDeliveryFailures"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mixed_registration_normalizes_and_preserves_descriptive_metadata(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "TENANT-A", "teamId": "TEAM-A", "channelId": "T1-ID",
+        "conversationId": "TEAM-A", "serviceUrl": "https://example.test/",
+        "teamName": "Stratsync.ai", "botAppId": "bot",
+    })
+    original = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            **destination("TENANT-A", "RTEST-ID", "r_test"),
+            "teamId": "TEAM-A", "teamName": None, "conversationId": "TEAM-A",
+        },
+    )).json()["destination"]
+    assert original["conversationId"] == "RTEST-ID"
+    assert original["teamName"] == "Stratsync.ai"
+
+    refreshed = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            **destination("TENANT-A", "RTEST-ID", ""),
+            "teamId": "TEAM-A", "teamName": None, "channelName": None,
+            "conversationId": "RTEST-ID",
+        },
+    )).json()["destination"]
+    assert refreshed["teamName"] == "Stratsync.ai"
+    assert refreshed["channelName"] == "r_test"
+
+
+@pytest.mark.asyncio
+async def test_team_name_enrichment_never_crosses_team_or_account(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await map_tenant(async_client, "ACC-002", "TENANT-B")
+    for tenant, team, name in (
+        ("TENANT-A", "OTHER-TEAM", "Wrong Team"),
+        ("TENANT-B", "TEAM-A", "Wrong Account"),
+    ):
+        await async_client.post("/api/teams/installations", json={
+            "tenantId": tenant, "teamId": team, "conversationId": team,
+            "serviceUrl": "https://example.test/", "teamName": name, "botAppId": "bot",
+        })
+    created = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            **destination("TENANT-A", "CHANNEL-A", "Channel A"),
+            "teamId": "TEAM-A", "teamName": None,
+        },
+    )).json()["destination"]
+    assert created["teamName"] is None
+
+
+@pytest.mark.asyncio
+async def test_selected_malformed_destination_repairs_before_n8n(async_client, sample_risk_payload, monkeypatch):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"success": True}
+
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    created = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "RTEST-ID", "r_test"),
+    )).json()["destination"]
+    await mongo_manager.database.teams_channel_destinations.update_one(
+        {"channelId": "RTEST-ID"}, {"$set": {"conversationId": "team-TENANT-A"}},
+    )
+    sent = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"destinationId": created["destinationId"]},
+    )
+    assert sent.status_code == 200
+    routed = captured[0]["teamsDestination"]
+    assert routed["conversationId"] == routed["channelId"] == "RTEST-ID"
+    stored = await mongo_manager.database.teams_channel_destinations.find_one(
+        {"channelId": "RTEST-ID"}
+    )
+    assert stored["conversationId"] == "RTEST-ID"
+
+
+@pytest.mark.asyncio
+async def test_repair_script_dry_run_apply_scope_and_idempotency(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await map_tenant(async_client, "ACC-002", "TENANT-B")
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "TENANT-A", "teamId": "TEAM-A", "conversationId": "TEAM-A",
+        "serviceUrl": "https://example.test/", "teamName": "Stratsync.ai", "botAppId": "bot",
+    })
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    documents = [
+        {"accountId": "ACC-001", "tenantId": "TENANT-A", "teamId": "TEAM-A",
+         "channelId": "T1-ID", "conversationId": "T1-ID", "channelName": "t1",
+         "enabled": True, "serviceUrl": "https://example.test/", "createdAt": now, "updatedAt": now},
+        {"accountId": "ACC-001", "tenantId": "TENANT-A", "teamId": "TEAM-A",
+         "channelId": "RTEST-ID", "conversationId": "TEAM-A", "channelName": "r_test",
+         "enabled": True, "serviceUrl": "https://example.test/", "createdAt": now, "updatedAt": now},
+        {"accountId": "ACC-002", "tenantId": "TENANT-B", "teamId": "TEAM-B",
+         "channelId": "OTHER-ID", "conversationId": "OTHER-ID", "enabled": True,
+         "serviceUrl": "https://example.test/", "createdAt": now, "updatedAt": now},
+    ]
+    await mongo_manager.database.teams_channel_destinations.insert_many(documents)
+    dry = await repair_teams_channel_conversations(mongo_manager.database, apply=False)
+    assert [item["channelId"] for item in dry] == ["RTEST-ID"]
+    malformed = await mongo_manager.database.teams_channel_destinations.find_one({"channelId": "RTEST-ID"})
+    assert malformed["conversationId"] == "TEAM-A" and malformed.get("teamName") is None
+
+    applied = await repair_teams_channel_conversations(mongo_manager.database, apply=True)
+    assert len(applied) == 1
+    repaired = await mongo_manager.database.teams_channel_destinations.find_one({"channelId": "RTEST-ID"})
+    assert repaired["conversationId"] == "RTEST-ID"
+    assert repaired["teamName"] == "Stratsync.ai"
+    assert await repair_teams_channel_conversations(mongo_manager.database, apply=True) == []
+    correct = await mongo_manager.database.teams_channel_destinations.find_one({"channelId": "T1-ID"})
+    assert correct["conversationId"] == "T1-ID"

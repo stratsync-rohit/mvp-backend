@@ -80,6 +80,19 @@ class TeamsInstallationRepository:
             {"accountId": account_id, "enabled": True}, sort=[("updatedAt", -1)]
         )
 
+    async def get_active_by_team(
+        self, account_id: str, tenant_id: str, team_id: str
+    ) -> Optional[dict[str, Any]]:
+        return await self._collection.find_one(
+            {
+                "accountId": account_id,
+                "tenantId": tenant_id,
+                "teamId": team_id,
+                "enabled": True,
+            },
+            sort=[("updatedAt", -1)],
+        )
+
     async def get_active_by_route(
         self, account_id: str, route_key: str
     ) -> Optional[dict[str, Any]]:

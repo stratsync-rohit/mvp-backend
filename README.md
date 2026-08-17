@@ -337,6 +337,20 @@ The unique identity is `(accountId, tenantId, teamId, channelId)`. Re-observing
 a channel updates/reactivates the same document; removing a Team installation
 soft-disables every destination for that account/tenant/team.
 
+#### Repair legacy Team-level channel conversations
+
+The repair is explicit, scoped to enabled channel destinations where
+`conversationId == teamId != channelId`, and never changes installations:
+
+```bash
+docker compose exec backend python -m scripts.repair_teams_channel_conversations --dry-run
+docker compose exec backend python -m scripts.repair_teams_channel_conversations --apply
+```
+
+Dry-run performs no writes. Apply sets `conversationId=channelId` and enriches a
+missing `teamName` only from an active installation matching the exact
+`accountId + tenantId + teamId`. Re-running apply is idempotent.
+
 Optional idempotency protection:
 ```bash
 curl -X POST http://localhost:8000/api/risks/RSK-OP-0821/send-to-teams \

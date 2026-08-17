@@ -11,6 +11,7 @@ from app.repositories.teams_channel_destination_repository import (
     TeamsChannelDestinationRepository,
 )
 from app.repositories.tenant_mapping_repository import TenantMappingRepository
+from app.repositories.teams_installation_repository import TeamsInstallationRepository
 from app.schemas.teams import TeamsChannelDestinationCreate
 from app.utils.logger import get_logger
 
@@ -22,12 +23,17 @@ class TeamsChannelDestinationService:
         self,
         repository: TeamsChannelDestinationRepository,
         tenant_mapping_repository: TenantMappingRepository,
+        installation_repository: TeamsInstallationRepository,
     ):
         self._repo = repository
         self._tenant_mapping_repo = tenant_mapping_repository
+        self._installation_repo = installation_repository
 
     async def register(self, payload: TeamsChannelDestinationCreate) -> dict[str, Any]:
         fields = payload.model_dump(mode="json", exclude_none=True)
+        for metadata_field in ("teamName", "channelName", "connectedByName"):
+            if not fields.get(metadata_field):
+                fields.pop(metadata_field, None)
         mapping = await self._tenant_mapping_repo.get_by_tenant(fields["tenantId"])
         if not mapping:
             raise MicrosoftTenantNotMappedError()
@@ -35,6 +41,17 @@ class TeamsChannelDestinationService:
             raise MicrosoftTenantMappingDisabledError()
 
         scoped = {"accountId": mapping["accountId"], **fields}
+        if not scoped.get("conversationId") or (
+            scoped["conversationId"] == scoped["teamId"]
+            and scoped["channelId"] != scoped["teamId"]
+        ):
+            scoped["conversationId"] = scoped["channelId"]
+        if not scoped.get("teamName"):
+            installation = await self._installation_repo.get_active_by_team(
+                mapping["accountId"], fields["tenantId"], fields["teamId"]
+            )
+            if installation and installation.get("teamName"):
+                scoped["teamName"] = installation["teamName"]
         previous = await self._repo.get_matching(scoped)
         destination = await self._repo.upsert(scoped)
         event = "teams_destination_created"
@@ -76,6 +93,20 @@ class TeamsChannelDestinationService:
             raise TeamsChannelDestinationNotFoundError()
         if not destination.get("enabled", False):
             raise TeamsInstallationUnavailableError()
+        if destination.get("disconnectedAt") is not None:
+            raise TeamsInstallationUnavailableError()
+        required = ("tenantId", "teamId", "channelId", "conversationId", "serviceUrl")
+        if any(not destination.get(field) for field in required):
+            raise TeamsChannelDestinationNotFoundError()
+        if (
+            destination["conversationId"] == destination["teamId"]
+            and destination["channelId"] != destination["teamId"]
+        ):
+            destination = await self._repo.repair_channel_conversation(
+                account_id, destination_id, destination["channelId"]
+            )
+            if not destination:
+                raise TeamsChannelDestinationNotFoundError()
         return destination
 
     async def remove(self, account_id: str, destination_id: str) -> dict[str, Any]:
