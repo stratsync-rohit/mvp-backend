@@ -119,6 +119,7 @@ class NotificationService:
                 "channelId": destination.get("channelId"),
             },
             "teamsDestination": {
+                "destinationId": destination_id,
                 "tenantId": destination["tenantId"],
                 "teamId": destination.get("teamId"),
                 "channelId": destination.get("channelId"),
@@ -140,6 +141,14 @@ class NotificationService:
         except N8nDeliveryException as exc:
             await self._log_repo.mark_failed(event_id, exc.message)
             raise N8nDeliveryError() from exc
+
+        if destination_id:
+            await self._channel_destination_service.record_delivery_result(
+                account_id, destination_id, n8n_response,
+            )
+        if n8n_response.get("success") is False:
+            await self._log_repo.mark_failed(event_id, "Microsoft Teams delivery failed")
+            raise N8nDeliveryError("Unable to deliver Microsoft Teams notification")
 
         await self._log_repo.mark_success(event_id, n8n_response)
 

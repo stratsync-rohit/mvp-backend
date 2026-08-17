@@ -1,5 +1,7 @@
 # Risk Notification Backend
 
+> Complete architecture, API, database, security, operations, troubleshooting, and developer handover documentation: [`docs/README.md`](docs/README.md).
+
 Backend service for the **Microsoft Teams Risk Notification System**, built for the Command
 Center web application. This service stores risk data, serves it to the frontend, triggers n8n
 workflows to deliver Microsoft Teams Adaptive Card notifications, and processes action requests

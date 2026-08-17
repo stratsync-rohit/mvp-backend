@@ -16,6 +16,7 @@ from app.schemas.teams import (
     TeamsChannelDestinationCreate,
     TeamsChannelDestinationRegistrationResponse,
     TeamsChannelDestinationResponse,
+    TeamsChannelDestinationDisconnectResponse,
     TeamsChannelDestinationSummary,
     TeamsInstallationCreate,
     TeamsInstallationDisconnect,
@@ -201,6 +202,18 @@ async def list_channel_destinations(
 ) -> list[dict]:
     # Existing selected-account MVP context; production authorization is separate.
     return await service.list_safe_by_account(accountId)
+
+
+@router.delete(
+    "/channel-destinations/{accountId}/{destinationId}",
+    response_model=TeamsChannelDestinationDisconnectResponse,
+)
+async def remove_channel_destination(
+    accountId: str, destinationId: str, service: ChannelDestinationServiceDep
+) -> dict:
+    # This browser-facing MVP route follows the same selected-account convention
+    # as the safe list route. The repository always scopes by both identifiers.
+    return await service.remove(accountId, destinationId)
 
 
 @router.get(

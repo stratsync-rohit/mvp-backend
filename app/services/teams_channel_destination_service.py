@@ -62,6 +62,8 @@ class TeamsChannelDestinationService:
                 "teamName": item.get("teamName"),
                 "channelName": item.get("channelName"),
                 "connected": item.get("enabled", False) is True,
+                "disconnectReason": item.get("disconnectReason"),
+                "disconnectedAt": item.get("disconnectedAt"),
             }
             for item in await self._repo.list_by_account(account_id)
         ]
@@ -75,6 +77,40 @@ class TeamsChannelDestinationService:
         if not destination.get("enabled", False):
             raise TeamsInstallationUnavailableError()
         return destination
+
+    async def remove(self, account_id: str, destination_id: str) -> dict[str, Any]:
+        destination = await self._repo.disconnect_manual(account_id, destination_id)
+        if not destination:
+            raise TeamsChannelDestinationNotFoundError()
+        logger.info("teams_destination_manually_removed", extra={
+            "accountId": account_id, "destinationId": destination_id,
+        })
+        return {
+            "success": True, "destinationId": destination_id,
+            "connected": False, "message": "Teams channel removed successfully",
+        }
+
+    async def record_delivery_result(
+        self, account_id: str, destination_id: str, result: dict[str, Any]
+    ) -> None:
+        # Legacy n8n workflows return {status: ...}; any response that does not
+        # explicitly report failure is a successful delivery acknowledgement.
+        if result.get("success") is not False:
+            await self._repo.record_delivery_result(account_id, destination_id)
+            return
+        code = result.get("errorCode")
+        if not isinstance(code, str):
+            code = "unknown_error"
+        permanent_reasons = {
+            "conversation_not_found": "channel_deleted",
+            "channel_not_found": "channel_deleted",
+            "bot_not_in_conversation": "channel_unavailable",
+            "permission_revoked": "permission_revoked",
+        }
+        reason = permanent_reasons.get(code) if result.get("retryable") is False else None
+        await self._repo.record_delivery_result(
+            account_id, destination_id, error_code=code, disconnect_reason=reason,
+        )
 
     async def disable_team(
         self, account_id: str, tenant_id: str, team_id: str

@@ -35,6 +35,11 @@ class TeamsChannelDestinationRepository:
                     "enabled": True,
                     "connectedAt": now,
                     "disconnectedAt": None,
+                    "disconnectReason": None,
+                    "disconnectSource": None,
+                    "lastDeliveryErrorAt": None,
+                    "lastDeliveryErrorCode": None,
+                    "consecutiveDeliveryFailures": 0,
                     "updatedAt": now,
                 },
                 "$setOnInsert": {"createdAt": now},
@@ -67,6 +72,59 @@ class TeamsChannelDestinationRepository:
                 "teamId": team_id,
                 "enabled": True,
             },
-            {"$set": {"enabled": False, "disconnectedAt": now, "updatedAt": now}},
+            {"$set": {
+                "enabled": False, "disconnectReason": "team_uninstalled",
+                "disconnectSource": "microsoft_teams", "disconnectedAt": now,
+                "updatedAt": now,
+            }},
         )
         return result.modified_count
+
+    async def disconnect_manual(
+        self, account_id: str, destination_id: str
+    ) -> Optional[dict[str, Any]]:
+        if not ObjectId.is_valid(destination_id):
+            return None
+        now = datetime.now(timezone.utc)
+        return await self._collection.find_one_and_update(
+            {"_id": ObjectId(destination_id), "accountId": account_id},
+            {"$set": {
+                "enabled": False, "disconnectReason": "manual_removal",
+                "disconnectSource": "stratsync_ui", "disconnectedAt": now,
+                "updatedAt": now,
+            }},
+            return_document=ReturnDocument.AFTER,
+        )
+
+    async def record_delivery_result(
+        self,
+        account_id: str,
+        destination_id: str,
+        *,
+        error_code: str | None = None,
+        disconnect_reason: str | None = None,
+    ) -> Optional[dict[str, Any]]:
+        if not ObjectId.is_valid(destination_id):
+            return None
+        now = datetime.now(timezone.utc)
+        update: dict[str, Any]
+        if error_code is None:
+            update = {"$set": {
+                "lastDeliveryErrorAt": None, "lastDeliveryErrorCode": None,
+                "consecutiveDeliveryFailures": 0, "updatedAt": now,
+            }}
+        else:
+            fields: dict[str, Any] = {
+                "lastDeliveryErrorAt": now, "lastDeliveryErrorCode": error_code,
+                "updatedAt": now,
+            }
+            if disconnect_reason:
+                fields.update({
+                    "enabled": False, "disconnectReason": disconnect_reason,
+                    "disconnectSource": "microsoft_teams", "disconnectedAt": now,
+                })
+            update = {"$set": fields, "$inc": {"consecutiveDeliveryFailures": 1}}
+        return await self._collection.find_one_and_update(
+            {"_id": ObjectId(destination_id), "accountId": account_id},
+            update, return_document=ReturnDocument.AFTER,
+        )

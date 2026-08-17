@@ -28,6 +28,8 @@ class TeamsInstallationRepository:
                     "enabled": True,
                     "connectedAt": now,
                     "disconnectedAt": None,
+                    "disconnectReason": None,
+                    "disconnectSource": None,
                     "updatedAt": now,
                 },
                 "$setOnInsert": {"createdAt": now},
@@ -65,7 +67,11 @@ class TeamsInstallationRepository:
         now = datetime.now(timezone.utc)
         return await self._collection.find_one_and_update(
             query,
-            {"$set": {"enabled": False, "disconnectedAt": now, "updatedAt": now}},
+            {"$set": {
+                "enabled": False, "disconnectReason": "bot_uninstalled",
+                "disconnectSource": "microsoft_teams", "disconnectedAt": now,
+                "updatedAt": now,
+            }},
             return_document=ReturnDocument.AFTER,
         )
 

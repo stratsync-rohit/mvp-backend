@@ -91,6 +91,15 @@ class TeamsChannelDestinationSummary(BaseModel):
     teamName: Optional[str] = None
     channelName: Optional[str] = None
     connected: bool
+    disconnectReason: Optional[str] = None
+    disconnectedAt: Optional[datetime] = None
+
+
+class TeamsChannelDestinationDisconnectResponse(BaseModel):
+    success: bool
+    destinationId: str
+    connected: bool
+    message: str
 
 
 class TeamsInstallationRegistrationResponse(BaseModel):
