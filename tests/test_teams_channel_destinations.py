@@ -86,6 +86,118 @@ async def test_three_channels_same_team_and_two_teams_same_tenant_coexist(async_
 
 
 @pytest.mark.asyncio
+async def test_two_teams_four_channels_uninstall_reinstall_and_route_independently(
+    async_client, sample_risk_payload, monkeypatch
+):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"success": True}
+
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await async_client.post("/api/risks", json=sample_risk_payload)
+
+    installations = {}
+    for team_id, team_name in (
+        ("TEAM-SALES", "Sales Org"),
+        ("TEAM-ENGINEERING", "Engineering"),
+    ):
+        response = await async_client.post("/api/teams/installations", json={
+            "tenantId": "TENANT-A", "teamId": team_id,
+            "conversationId": team_id, "serviceUrl": "https://example.test/",
+            "teamName": team_name, "botAppId": "bot",
+        })
+        assert response.status_code == 200
+        installations[team_id] = response.json()["installation"]["installationId"]
+
+    assert len(set(installations.values())) == 2
+    assert await mongo_manager.database.teams_installations.count_documents({
+        "accountId": "ACC-001", "tenantId": "TENANT-A",
+    }) == 2
+
+    channel_specs = (
+        ("TEAM-SALES", "Sales Org", "CHANNEL-SALES-ALERTS", "Alerts"),
+        ("TEAM-SALES", "Sales Org", "CHANNEL-LEADERSHIP", "Leadership"),
+        ("TEAM-ENGINEERING", "Engineering", "CHANNEL-DEV", "Alerts"),
+        ("TEAM-ENGINEERING", "Engineering", "CHANNEL-INCIDENTS", "Incidents"),
+    )
+    created = {}
+    for team_id, team_name, channel_id, channel_name in channel_specs:
+        payload = destination("TENANT-A", channel_id, channel_name)
+        payload.update({"teamId": team_id, "teamName": team_name})
+        response = await async_client.post("/api/teams/channel-destinations", json=payload)
+        assert response.status_code == 200
+        created[channel_id] = response.json()["destination"]
+
+    assert len({item["destinationId"] for item in created.values()}) == 4
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "tenantId": "TENANT-A",
+    }) == 4
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "channelName": "Alerts",
+    }) == 2
+
+    listed = (await async_client.get(
+        "/api/teams/channel-destinations/ACC-001"
+    )).json()
+    assert {(item["teamName"], item["channelName"]) for item in listed} == {
+        ("Sales Org", "Alerts"), ("Sales Org", "Leadership"),
+        ("Engineering", "Alerts"), ("Engineering", "Incidents"),
+    }
+
+    removed = await async_client.post("/api/teams/installations/disconnect", json={
+        "tenantId": "TENANT-A", "teamId": "TEAM-SALES", "scope": "team",
+    })
+    assert removed.status_code == 200
+    assert await mongo_manager.database.teams_installations.count_documents({
+        "accountId": "ACC-001", "teamId": "TEAM-SALES", "enabled": False,
+    }) == 1
+    assert await mongo_manager.database.teams_installations.count_documents({
+        "accountId": "ACC-001", "teamId": "TEAM-ENGINEERING", "enabled": True,
+    }) == 1
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "teamId": "TEAM-SALES", "enabled": False,
+    }) == 2
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "teamId": "TEAM-ENGINEERING", "enabled": True,
+    }) == 2
+
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "TENANT-A", "teamId": "TEAM-SALES",
+        "conversationId": "TEAM-SALES", "serviceUrl": "https://example.test/",
+        "teamName": "Sales Org", "botAppId": "bot",
+    })
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "teamId": "TEAM-SALES", "enabled": False,
+    }) == 2
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "teamId": "TEAM-ENGINEERING", "enabled": True,
+    }) == 2
+
+    sales_alerts_payload = destination("TENANT-A", "CHANNEL-SALES-ALERTS", "Alerts")
+    sales_alerts_payload.update({"teamId": "TEAM-SALES", "teamName": "Sales Org"})
+    restored = (await async_client.post(
+        "/api/teams/channel-destinations", json=sales_alerts_payload
+    )).json()["destination"]
+    assert restored["destinationId"] == created["CHANNEL-SALES-ALERTS"]["destinationId"]
+
+    for channel_id in ("CHANNEL-SALES-ALERTS", "CHANNEL-DEV"):
+        response = await async_client.post(
+            "/api/risks/RSK-OP-0821/send-to-teams",
+            json={"destinationId": created[channel_id]["destinationId"]},
+        )
+        assert response.status_code == 200
+
+    assert [(item["teamsDestination"]["teamId"],
+             item["teamsDestination"]["channelId"]) for item in captured] == [
+        ("TEAM-SALES", "CHANNEL-SALES-ALERTS"),
+        ("TEAM-ENGINEERING", "CHANNEL-DEV"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_updating_one_channel_preserves_sibling_routing_and_state(async_client):
     await map_tenant(async_client, "ACC-001", "TENANT-A")
     first = (await async_client.post(
@@ -489,6 +601,87 @@ async def test_team_name_enrichment_never_crosses_team_or_account(async_client):
         },
     )).json()["destination"]
     assert created["teamName"] is None
+
+
+@pytest.mark.asyncio
+async def test_missing_team_name_uses_exact_team_installation_and_preserves_metadata(
+    async_client, sample_risk_payload, monkeypatch
+):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"success": True}
+
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await async_client.post("/api/risks", json=sample_risk_payload)
+
+    for team_id, team_name in (
+        ("TEAM-A", "Stratsync.ai"),
+        ("TEAM-B", "rohit-test-channel"),
+    ):
+        await async_client.post("/api/teams/installations", json={
+            "tenantId": "TENANT-A", "teamId": team_id,
+            "conversationId": team_id, "serviceUrl": "https://example.test/",
+            "teamName": team_name, "botAppId": "bot",
+        })
+
+    # Lifecycle state must not make exact-Team display metadata unsafe to reuse.
+    await mongo_manager.database.teams_installations.update_one(
+        {"accountId": "ACC-001", "tenantId": "TENANT-A", "teamId": "TEAM-B"},
+        {"$set": {"enabled": False}},
+    )
+
+    created = {}
+    for team_id, channel_id, channel_name in (
+        ("TEAM-A", "CHANNEL-34", "test34"),
+        ("TEAM-A", "CHANNEL-35", "test35"),
+        ("TEAM-A", "CHANNEL-36", "test36"),
+        ("TEAM-B", "CHANNEL-3", "test3"),
+    ):
+        payload = destination("TENANT-A", channel_id, channel_name)
+        payload.update({"teamId": team_id, "teamName": None})
+        response = await async_client.post(
+            "/api/teams/channel-destinations", json=payload
+        )
+        assert response.status_code == 200
+        created[channel_id] = response.json()["destination"]
+
+    assert created["CHANNEL-3"]["teamName"] == "rohit-test-channel"
+    assert all(
+        created[channel_id]["teamName"] == "Stratsync.ai"
+        for channel_id in ("CHANNEL-34", "CHANNEL-35", "CHANNEL-36")
+    )
+
+    # A later sparse event must preserve both known Team and channel metadata.
+    sparse = destination("TENANT-A", "CHANNEL-3", "")
+    sparse.update({
+        "teamId": "TEAM-B", "teamName": None, "channelName": None,
+    })
+    refreshed = (await async_client.post(
+        "/api/teams/channel-destinations", json=sparse
+    )).json()["destination"]
+    assert refreshed["teamName"] == "rohit-test-channel"
+    assert refreshed["channelName"] == "test3"
+
+    listed = (await async_client.get(
+        "/api/teams/channel-destinations/ACC-001"
+    )).json()
+    assert {(item["teamName"], item["channelName"]) for item in listed} == {
+        ("Stratsync.ai", "test34"),
+        ("Stratsync.ai", "test35"),
+        ("Stratsync.ai", "test36"),
+        ("rohit-test-channel", "test3"),
+    }
+
+    sent = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"destinationId": created["CHANNEL-3"]["destinationId"]},
+    )
+    assert sent.status_code == 200
+    assert captured[0]["teamsDestination"]["teamId"] == "TEAM-B"
+    assert captured[0]["teamsDestination"]["channelId"] == "CHANNEL-3"
 
 
 @pytest.mark.asyncio

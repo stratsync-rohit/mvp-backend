@@ -56,12 +56,32 @@ class TeamsChannelDestinationService:
         })
 
         scoped = {"accountId": mapping["accountId"], **fields}
-        if not scoped.get("teamName"):
-            installation = await self._installation_repo.get_active_by_team(
+        if scoped.get("teamName"):
+            logger.info("teams_team_metadata_resolved", extra={
+                "tenantId": fields["tenantId"],
+                "teamId": fields["teamId"],
+                "channelId": fields["channelId"],
+                "resolutionSource": "channel_activity",
+            })
+        else:
+            installation = await self._installation_repo.get_by_team(
                 mapping["accountId"], fields["tenantId"], fields["teamId"]
             )
             if installation and installation.get("teamName"):
                 scoped["teamName"] = installation["teamName"]
+                logger.info("teams_channel_destination_enriched", extra={
+                    "tenantId": fields["tenantId"],
+                    "teamId": fields["teamId"],
+                    "channelId": fields["channelId"],
+                    "resolutionSource": "team_installation",
+                })
+            else:
+                logger.info("teams_team_metadata_missing", extra={
+                    "tenantId": fields["tenantId"],
+                    "teamId": fields["teamId"],
+                    "channelId": fields["channelId"],
+                    "resolutionSource": "not_available",
+                })
         previous = await self._repo.get_matching(scoped)
         if (
             previous

@@ -93,6 +93,19 @@ class TeamsInstallationRepository:
             sort=[("updatedAt", -1)],
         )
 
+    async def get_by_team(
+        self, account_id: str, tenant_id: str, team_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Return exact-Team metadata even when its lifecycle row is inactive."""
+        return await self._collection.find_one(
+            {
+                "accountId": account_id,
+                "tenantId": tenant_id,
+                "teamId": team_id,
+            },
+            sort=[("updatedAt", -1)],
+        )
+
     async def get_active_by_route(
         self, account_id: str, route_key: str
     ) -> Optional[dict[str, Any]]:
