@@ -287,7 +287,7 @@ async def test_integration_overview_uses_client_name_and_hides_sensitive_fields(
     await async_client.post("/api/teams/channel-destinations", json={
         "tenantId": "TENANT-A", "teamId": "team-1", "teamName": "Operations",
         "channelId": "channel-1", "channelName": "General",
-        "conversationId": "conversation-1", "serviceUrl": "https://example.test/",
+        "conversationId": "channel-1", "serviceUrl": "https://example.test/",
     })
     response = await async_client.get("/api/teams/integrations")
     assert response.status_code == 200

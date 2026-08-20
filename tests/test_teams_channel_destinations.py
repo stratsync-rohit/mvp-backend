@@ -467,7 +467,7 @@ async def test_team_name_enrichment_never_crosses_team_or_account(async_client):
 
 
 @pytest.mark.asyncio
-async def test_selected_malformed_destination_repairs_before_n8n(async_client, sample_risk_payload, monkeypatch):
+async def test_selected_malformed_destination_is_rejected_without_fabrication(async_client, sample_risk_payload, monkeypatch):
     captured = []
 
     async def trigger(self, url, payload, event_id):
@@ -488,13 +488,12 @@ async def test_selected_malformed_destination_repairs_before_n8n(async_client, s
         "/api/risks/RSK-OP-0821/send-to-teams",
         json={"destinationId": created["destinationId"]},
     )
-    assert sent.status_code == 200
-    routed = captured[0]["teamsDestination"]
-    assert routed["conversationId"] == routed["channelId"] == "RTEST-ID"
+    assert sent.status_code == 404
+    assert captured == []
     stored = await mongo_manager.database.teams_channel_destinations.find_one(
         {"channelId": "RTEST-ID"}
     )
-    assert stored["conversationId"] == "RTEST-ID"
+    assert stored["conversationId"] == "team-TENANT-A"
 
 
 @pytest.mark.asyncio

@@ -72,7 +72,7 @@ class TeamsChannelDestinationCreate(BaseModel):
 
     @model_validator(mode="after")
     def require_channel_conversation_identity(self):
-        if self.conversationId == self.teamId and self.channelId != self.teamId:
+        if self.conversationId != self.channelId:
             raise ValueError("conversationId must identify the selected channel")
         return self
 

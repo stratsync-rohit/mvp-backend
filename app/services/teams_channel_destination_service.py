@@ -109,15 +109,8 @@ class TeamsChannelDestinationService:
         required = ("tenantId", "teamId", "channelId", "conversationId", "serviceUrl")
         if any(not destination.get(field) for field in required):
             raise TeamsChannelDestinationNotFoundError()
-        if (
-            destination["conversationId"] == destination["teamId"]
-            and destination["channelId"] != destination["teamId"]
-        ):
-            destination = await self._repo.repair_channel_conversation(
-                account_id, destination_id, destination["channelId"]
-            )
-            if not destination:
-                raise TeamsChannelDestinationNotFoundError()
+        if destination["conversationId"] != destination["channelId"]:
+            raise TeamsChannelDestinationNotFoundError()
         return destination
 
     async def resolve_default(self, account_id: str) -> dict[str, Any]:
@@ -130,6 +123,8 @@ class TeamsChannelDestinationService:
         destination = destinations[0]
         required = ("tenantId", "teamId", "channelId", "conversationId", "serviceUrl")
         if any(not destination.get(field) for field in required):
+            raise TeamsChannelDestinationNotFoundError()
+        if destination["conversationId"] != destination["channelId"]:
             raise TeamsChannelDestinationNotFoundError()
         return destination
 

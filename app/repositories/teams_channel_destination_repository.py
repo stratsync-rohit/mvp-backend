@@ -48,22 +48,6 @@ class TeamsChannelDestinationRepository:
             return_document=ReturnDocument.AFTER,
         )
 
-    async def repair_channel_conversation(
-        self, account_id: str, destination_id: str, channel_id: str
-    ) -> Optional[dict[str, Any]]:
-        if not ObjectId.is_valid(destination_id):
-            return None
-        now = datetime.now(timezone.utc)
-        return await self._collection.find_one_and_update(
-            {
-                "_id": ObjectId(destination_id),
-                "accountId": account_id,
-                "channelId": channel_id,
-            },
-            {"$set": {"conversationId": channel_id, "updatedAt": now}},
-            return_document=ReturnDocument.AFTER,
-        )
-
     async def list_by_account(self, account_id: str) -> list[dict[str, Any]]:
         cursor = self._collection.find({"accountId": account_id}).sort("updatedAt", -1)
         return [item async for item in cursor]
