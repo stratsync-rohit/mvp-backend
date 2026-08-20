@@ -369,6 +369,31 @@ async def test_manual_remove_is_scoped_soft_idempotent_and_reactivates(async_cli
 
 
 @pytest.mark.asyncio
+async def test_automatic_retry_does_not_reactivate_manual_removal(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    created = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "SALES-ID", "Sales"),
+    )).json()["destination"]
+    await async_client.delete(
+        f"/api/teams/channel-destinations/ACC-001/{created['destinationId']}"
+    )
+
+    retried = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            **destination("TENANT-A", "SALES-ID", "Sales retry"),
+            "registrationTrigger": "channel_created",
+        },
+    )).json()["destination"]
+
+    assert retried["destinationId"] == created["destinationId"]
+    assert retried["enabled"] is False
+    assert retried["disconnectReason"] == "manual_removal"
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({}) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("result", "disabled", "reason", "code"),
     [

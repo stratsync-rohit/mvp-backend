@@ -32,6 +32,7 @@ class TeamsChannelDestinationService:
         self._installation_repo = installation_repository
 
     async def register(self, payload: TeamsChannelDestinationCreate) -> dict[str, Any]:
+        registration_trigger = payload.registrationTrigger
         fields = payload.model_dump(mode="json", exclude_none=True)
         for metadata_field in ("teamName", "channelName", "connectedByName"):
             if not fields.get(metadata_field):
@@ -62,6 +63,21 @@ class TeamsChannelDestinationService:
             if installation and installation.get("teamName"):
                 scoped["teamName"] = installation["teamName"]
         previous = await self._repo.get_matching(scoped)
+        if (
+            previous
+            and previous.get("disconnectReason") == "manual_removal"
+            and registration_trigger not in {"explicit_connect", "explicit_reconnect"}
+        ):
+            logger.info("teams_channel_destination_registration_skipped", extra={
+                "accountId": mapping["accountId"],
+                "tenantId": fields["tenantId"],
+                "teamId": fields["teamId"],
+                "channelId": fields["channelId"],
+                "destinationId": str(previous["_id"]),
+                "registrationTrigger": registration_trigger,
+                "reason": "manual_removal",
+            })
+            return previous
         destination = await self._repo.upsert(scoped)
         event = "teams_destination_created"
         if previous:

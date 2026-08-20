@@ -69,6 +69,10 @@ class TeamsChannelDestinationCreate(BaseModel):
     conversationId: str = Field(min_length=1)
     serviceUrl: str = Field(min_length=1)
     connectedByName: Optional[str] = None
+    registrationTrigger: Literal[
+        "explicit_connect", "installation_add", "channel_created",
+        "conversation_update", "explicit_reconnect",
+    ] = Field(default="explicit_reconnect", exclude=True)
 
     @model_validator(mode="after")
     def require_channel_conversation_identity(self):
@@ -85,6 +89,7 @@ class TeamsChannelDestinationResponse(TeamsChannelDestinationCreate):
     updatedAt: datetime
     connectedAt: datetime
     disconnectedAt: Optional[datetime] = None
+    disconnectReason: Optional[str] = None
 
 
 class TeamsChannelDestinationRegistrationResponse(BaseModel):
