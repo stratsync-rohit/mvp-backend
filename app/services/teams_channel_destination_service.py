@@ -43,11 +43,6 @@ class TeamsChannelDestinationService:
             raise MicrosoftTenantMappingDisabledError()
 
         scoped = {"accountId": mapping["accountId"], **fields}
-        if not scoped.get("conversationId") or (
-            scoped["conversationId"] == scoped["teamId"]
-            and scoped["channelId"] != scoped["teamId"]
-        ):
-            scoped["conversationId"] = scoped["channelId"]
         if not scoped.get("teamName"):
             installation = await self._installation_repo.get_active_by_team(
                 mapping["accountId"], fields["tenantId"], fields["teamId"]
@@ -63,11 +58,12 @@ class TeamsChannelDestinationService:
                 if not previous.get("enabled", False)
                 else "teams_destination_updated"
             )
-        logger.info(event, extra={
+        logger.info("teams_channel_destination_registered", extra={
             "accountId": mapping["accountId"],
             "tenantId": fields["tenantId"],
             "teamId": fields["teamId"],
             "channelId": fields["channelId"],
+            "operation": event,
         })
         return destination
 

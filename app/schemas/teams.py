@@ -66,9 +66,15 @@ class TeamsChannelDestinationCreate(BaseModel):
     teamName: Optional[str] = None
     channelId: str = Field(min_length=1)
     channelName: Optional[str] = None
-    conversationId: Optional[str] = Field(default=None, min_length=1)
+    conversationId: str = Field(min_length=1)
     serviceUrl: str = Field(min_length=1)
     connectedByName: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_channel_conversation_identity(self):
+        if self.conversationId == self.teamId and self.channelId != self.teamId:
+            raise ValueError("conversationId must identify the selected channel")
+        return self
 
 
 class TeamsChannelDestinationResponse(TeamsChannelDestinationCreate):

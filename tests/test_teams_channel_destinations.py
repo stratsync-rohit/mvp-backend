@@ -385,18 +385,26 @@ async def test_delivery_result_disconnects_only_definitive_failures(
 
 
 @pytest.mark.asyncio
-async def test_mixed_registration_normalizes_and_preserves_descriptive_metadata(async_client):
+async def test_registration_rejects_team_conversation_and_preserves_metadata(async_client):
     await map_tenant(async_client, "ACC-001", "TENANT-A")
     await async_client.post("/api/teams/installations", json={
         "tenantId": "TENANT-A", "teamId": "TEAM-A", "channelId": "T1-ID",
         "conversationId": "TEAM-A", "serviceUrl": "https://example.test/",
         "teamName": "Stratsync.ai", "botAppId": "bot",
     })
-    original = (await async_client.post(
+    invalid = await async_client.post(
         "/api/teams/channel-destinations",
         json={
             **destination("TENANT-A", "RTEST-ID", "r_test"),
             "teamId": "TEAM-A", "teamName": None, "conversationId": "TEAM-A",
+        },
+    )
+    assert invalid.status_code == 422
+    original = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            **destination("TENANT-A", "RTEST-ID", "r_test"),
+            "teamId": "TEAM-A", "teamName": None,
         },
     )).json()["destination"]
     assert original["conversationId"] == "RTEST-ID"
