@@ -38,9 +38,21 @@ class TeamsChannelDestinationService:
                 fields.pop(metadata_field, None)
         mapping = await self._tenant_mapping_repo.get_by_tenant(fields["tenantId"])
         if not mapping:
+            logger.warning("teams_tenant_account_resolution_failed", extra={
+                "tenantId": fields["tenantId"], "result": "not_mapped",
+            })
             raise MicrosoftTenantNotMappedError()
         if not mapping.get("enabled", False):
+            logger.warning("teams_tenant_account_resolution_failed", extra={
+                "tenantId": fields["tenantId"], "accountId": mapping["accountId"],
+                "result": "disabled",
+            })
             raise MicrosoftTenantMappingDisabledError()
+
+        logger.info("teams_tenant_account_resolved", extra={
+            "tenantId": fields["tenantId"], "accountId": mapping["accountId"],
+            "result": "resolved",
+        })
 
         scoped = {"accountId": mapping["accountId"], **fields}
         if not scoped.get("teamName"):
@@ -63,6 +75,7 @@ class TeamsChannelDestinationService:
             "tenantId": fields["tenantId"],
             "teamId": fields["teamId"],
             "channelId": fields["channelId"],
+            "destinationId": str(destination["_id"]),
             "operation": event,
         })
         return destination

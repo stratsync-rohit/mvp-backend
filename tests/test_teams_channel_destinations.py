@@ -64,6 +64,28 @@ async def test_same_team_channels_upsert_independently_and_reactivate(async_clie
 
 
 @pytest.mark.asyncio
+async def test_three_channels_same_team_and_two_teams_same_tenant_coexist(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    created = []
+    for team_id, channel_id in (
+        ("TEAM-STRATSYNC", "FINAL-TEST"),
+        ("TEAM-STRATSYNC", "FINAL2"),
+        ("TEAM-STRATSYNC", "R2"),
+        ("TEAM-ROHIT-TEST", "TEST"),
+    ):
+        payload = destination("TENANT-A", channel_id, channel_id)
+        payload["teamId"] = team_id
+        response = await async_client.post("/api/teams/channel-destinations", json=payload)
+        assert response.status_code == 200
+        created.append(response.json()["destination"])
+
+    assert len({item["destinationId"] for item in created}) == 4
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "tenantId": "TENANT-A", "enabled": True,
+    }) == 4
+
+
+@pytest.mark.asyncio
 async def test_updating_one_channel_preserves_sibling_routing_and_state(async_client):
     await map_tenant(async_client, "ACC-001", "TENANT-A")
     first = (await async_client.post(
