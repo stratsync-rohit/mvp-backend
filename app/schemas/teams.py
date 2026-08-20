@@ -1,6 +1,6 @@
 """Pydantic v2 schemas for Teams destinations and Send-to-Teams flow."""
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator, field_validator
 
@@ -111,11 +111,15 @@ class TeamsInstallationRegistrationResponse(BaseModel):
 class TeamsInstallationDisconnect(BaseModel):
     tenantId: str = Field(min_length=1)
     teamId: Optional[str] = None
+    channelId: Optional[str] = None
     conversationId: Optional[str] = None
+    scope: Literal["team", "channel"] = "team"
 
     @model_validator(mode="after")
     def require_installation_identity(self):
-        if not self.teamId and not self.conversationId:
+        if self.scope == "channel" and (not self.teamId or not self.channelId):
+            raise ValueError("teamId and channelId are required for channel scope")
+        if self.scope == "team" and not self.teamId and not self.conversationId:
             raise ValueError("teamId or conversationId is required")
         return self
 

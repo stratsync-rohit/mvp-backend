@@ -63,7 +63,7 @@ class TeamsRouteNotConfiguredError(AppError):
 class TeamsRouteRequiredError(AppError):
     def __init__(self):
         super().__init__(
-            "Multiple Microsoft Teams destinations are connected. notificationRoute is required.",
+            "Multiple Microsoft Teams channels are connected. destinationId is required.",
             status.HTTP_409_CONFLICT,
         )
 

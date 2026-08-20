@@ -6,10 +6,7 @@ from app.exceptions.handlers import (
     MicrosoftTenantNotMappedError,
     TeamsInstallationNotFoundError,
     TeamsInstallationNotConfiguredError,
-    TeamsInstallationUnavailableError,
     TeamsRouteConflictError,
-    TeamsRouteNotConfiguredError,
-    TeamsRouteRequiredError,
 )
 from pymongo.errors import DuplicateKeyError
 from app.repositories.tenant_mapping_repository import TenantMappingRepository
@@ -130,6 +127,20 @@ class TeamsInstallationService:
         if not mapping:
             raise MicrosoftTenantNotMappedError()
         account_id = mapping["accountId"]
+        if payload.scope == "channel":
+            disabled = await self._channel_destination_service.disable_channel(
+                account_id, payload.tenantId, payload.teamId, payload.channelId
+            )
+            return {
+                "success": True,
+                "disconnected": disabled > 0,
+                "message": (
+                    "Teams channel disconnected"
+                    if disabled
+                    else "No matching active Teams channel found"
+                ),
+                "accountId": account_id,
+            }
         installation = await self._repo.disconnect(
             account_id=account_id,
             tenant_id=payload.tenantId,
@@ -176,35 +187,6 @@ class TeamsInstallationService:
             raise TeamsInstallationNotConfiguredError()
         return installation
 
-    async def resolve_active_destination(
-        self, account_id: str, route_key: str | None = None
-    ) -> dict[str, Any]:
-        if route_key is not None:
-            installation = await self._repo.get_active_by_route(account_id, route_key)
-            if not installation:
-                raise TeamsRouteNotConfiguredError(route_key)
-            return installation
-
-        active = await self._repo.list_active_by_account(account_id)
-        if not active:
-            raise TeamsInstallationNotConfiguredError()
-        if len(active) > 1:
-            raise TeamsRouteRequiredError()
-        return active[0]
-
-    async def resolve_selected_destination(
-        self, account_id: str, installation_id: str
-    ) -> dict[str, Any]:
-        """Resolve an explicit browser selection within its trusted account scope."""
-        installation = await self._repo.get_by_id(account_id, installation_id)
-        if not installation:
-            # The same response covers malformed, unknown, and cross-account IDs
-            # without disclosing whether another account owns the identifier.
-            raise TeamsInstallationNotFoundError()
-        if not installation.get("enabled", False):
-            raise TeamsInstallationUnavailableError()
-        return installation
-
     async def assign_route(
         self, account_id: str, installation_id: str, route_key: str
     ) -> dict[str, Any]:
@@ -221,6 +203,11 @@ class TeamsInstallationService:
     async def integration_status(self, account_id: str) -> dict[str, Any]:
         installation = await self._repo.get_active(account_id)
         mapping = await self._tenant_mapping_repo.get_by_account(account_id)
+        channel_destinations = [
+            item for item in await self._channel_destination_service.list_by_account(account_id)
+            if item.get("enabled", False) and item.get("disconnectedAt") is None
+        ]
+        sole_channel = channel_destinations[0] if len(channel_destinations) == 1 else None
         logger.info(
             "teams_integration_status_checked",
             extra={"accountId": account_id, "connected": installation is not None},
@@ -234,11 +221,11 @@ class TeamsInstallationService:
                 mapping.get("clientName") if mapping else None
             ) or account_id,
             "tenantId": installation["tenantId"],
-            "teamId": installation.get("teamId"),
-            "channelId": installation.get("channelId"),
-            "conversationId": installation["conversationId"],
-            "teamName": installation.get("teamName"),
-            "channelName": installation.get("channelName"),
+            "teamId": sole_channel.get("teamId") if sole_channel else None,
+            "channelId": sole_channel.get("channelId") if sole_channel else None,
+            "conversationId": sole_channel.get("conversationId") if sole_channel else None,
+            "teamName": sole_channel.get("teamName") if sole_channel else None,
+            "channelName": sole_channel.get("channelName") if sole_channel else None,
             "connectedByName": installation.get("connectedByName"),
             "enabled": True,
         }
@@ -267,6 +254,12 @@ class TeamsInstallationService:
         for mapping in mappings:
             active = await self._repo.list_active_by_account(mapping["accountId"])
             latest = active[0] if active else None
+            channels = [
+                item for item in await self._channel_destination_service.list_by_account(
+                    mapping["accountId"]
+                ) if item.get("enabled", False) and item.get("disconnectedAt") is None
+            ]
+            sole_channel = channels[0] if len(channels) == 1 else None
             result.append(
                 {
                     "accountId": mapping["accountId"],
@@ -274,8 +267,8 @@ class TeamsInstallationService:
                     "tenantId": mapping["tenantId"],
                     "connected": bool(active),
                     "activeInstallations": len(active),
-                    "teamName": latest.get("teamName") if latest else None,
-                    "channelName": latest.get("channelName") if latest else None,
+                    "teamName": sole_channel.get("teamName") if sole_channel else None,
+                    "channelName": sole_channel.get("channelName") if sole_channel else None,
                     "connectedByName": (
                         latest.get("connectedByName") if latest else None
                     ),

@@ -115,6 +115,11 @@ async def _install_teams(async_client):
     await async_client.post("/api/teams/installations", json={
         "tenantId": "tenant-1", "teamId": "team", "channelId": "channel",
         "conversationId": "conversation", "serviceUrl": "https://example.test/", "botAppId": "bot"})
+    return (await async_client.post("/api/teams/channel-destinations", json={
+        "tenantId": "tenant-1", "teamId": "team", "channelId": "channel",
+        "conversationId": "conversation", "serviceUrl": "https://example.test/",
+        "teamName": "Team", "channelName": "Channel",
+    })).json()["destination"]
 
 
 @pytest.mark.asyncio
@@ -165,15 +170,19 @@ async def test_multiple_installations_without_route_is_controlled(
         "tenantId": "tenant-1", "teamId": "team-2", "channelId": "channel-2",
         "conversationId": "conversation-2", "serviceUrl": "https://example.test/", "botAppId": "bot",
     })
+    await async_client.post("/api/teams/channel-destinations", json={
+        "tenantId": "tenant-1", "teamId": "team-2", "channelId": "channel-2",
+        "conversationId": "conversation-2", "serviceUrl": "https://example.test/",
+    })
     response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "Multiple Microsoft Teams destinations are connected. notificationRoute is required."
+        "Multiple Microsoft Teams channels are connected. destinationId is required."
     )
 
 
 @pytest.mark.asyncio
-async def test_route_send_is_exact_and_never_falls_back(
+async def test_legacy_notification_route_never_selects_a_channel(
     async_client, sample_risk_payload, monkeypatch
 ):
     captured = []
@@ -186,37 +195,34 @@ async def test_route_send_is_exact_and_never_falls_back(
     monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
     await async_client.put("/api/teams/tenant-mappings/ACC-001", json={
         "tenantId": "tenant-1", "clientName": "Client A", "enabled": True})
+    destinations = []
     for suffix in ("finance", "operations"):
-        registered = (await async_client.post("/api/teams/installations", json={
-            "tenantId": "tenant-1", "teamId": f"team-{suffix}",
-            "channelId": f"channel-{suffix}", "conversationId": f"conversation-{suffix}",
-            "serviceUrl": "https://example.test/", "botAppId": "bot",
-        })).json()["installation"]
-        assigned = await async_client.patch(
-            f"/api/teams/installations/ACC-001/{registered['installationId']}/route",
-            json={"routeKey": suffix.title()},
-        )
-        assert assigned.status_code == 200
+        destinations.append((await async_client.post(
+            "/api/teams/channel-destinations", json={
+                "tenantId": "tenant-1", "teamId": f"team-{suffix}",
+                "channelId": f"channel-{suffix}",
+                "conversationId": f"conversation-{suffix}",
+                "serviceUrl": "https://example.test/",
+            }
+        )).json()["destination"])
 
     sample_risk_payload["notificationRoute"] = "finance"
     await async_client.post("/api/risks", json=sample_risk_payload)
-    sent = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    sent = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"destinationId": destinations[0]["destinationId"]},
+    )
     assert sent.status_code == 200
     assert captured[0]["teamsDestination"]["channelId"] == "channel-finance"
 
-    await async_client.patch(
-        "/api/risks/RSK-OP-0821", json={"notificationRoute": "executive"}
-    )
-    missing = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
-    assert missing.status_code == 409
-    assert missing.json()["detail"] == (
-        "No active Microsoft Teams destination is configured for route 'executive'."
-    )
+    ambiguous = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["detail"].endswith("destinationId is required.")
     assert len(captured) == 1
 
 
 @pytest.mark.asyncio
-async def test_explicit_installation_selection_is_exact_and_account_scoped(
+async def test_deprecated_installation_id_does_not_bypass_channel_ambiguity(
     async_client, sample_risk_payload, monkeypatch
 ):
     captured = []
@@ -236,47 +242,16 @@ async def test_explicit_installation_selection_is_exact_and_account_scoped(
         "tenantId": "tenant-b", "clientName": "Client B", "enabled": True,
     })
 
-    async def install(tenant, team, channel):
-        response = await async_client.post("/api/teams/installations", json={
-            "tenantId": tenant, "teamId": team, "channelId": channel,
-            "conversationId": f"conversation-{team}",
-            "serviceUrl": "https://example.test/", "botAppId": "bot",
+    for channel in ("sales-channel", "dev-channel"):
+        await async_client.post("/api/teams/channel-destinations", json={
+            "tenantId": "tenant-a", "teamId": f"team-{channel}",
+            "channelId": channel, "conversationId": f"conversation-{channel}",
+            "serviceUrl": "https://example.test/",
         })
-        return response.json()["installation"]["installationId"]
-
-    sales_id = await install("tenant-a", "sales-team", "sales-channel")
-    dev_id = await install("tenant-a", "dev-team", "dev-channel")
-    finance_id = await install("tenant-b", "finance-team", "finance-channel")
-
-    sent = await async_client.post(
+    response = await async_client.post(
         "/api/risks/RSK-OP-0821/send-to-teams",
-        json={"installationId": dev_id},
+        json={"installationId": "legacy-installation-id"},
     )
-    assert sent.status_code == 200
-    assert captured[-1]["teamsDestination"]["channelId"] == "dev-channel"
-
-    cross_account = await async_client.post(
-        "/api/risks/RSK-OP-0821/send-to-teams",
-        json={"installationId": finance_id},
-    )
-    assert cross_account.status_code == 404
-    assert len(captured) == 1
-
-    await async_client.post(
-        "/api/teams/installations/disconnect",
-        json={"tenantId": "tenant-a", "teamId": "sales-team"},
-    )
-    disconnected = await async_client.post(
-        "/api/risks/RSK-OP-0821/send-to-teams",
-        json={"installationId": sales_id},
-    )
-    assert disconnected.status_code == 409
-    assert disconnected.json()["detail"] == (
-        "Microsoft Teams destination is no longer connected."
-    )
-    unknown = await async_client.post(
-        "/api/risks/RSK-OP-0821/send-to-teams",
-        json={"installationId": "not-an-object-id"},
-    )
-    assert unknown.status_code == 404
-    assert len(captured) == 1
+    assert response.status_code == 409
+    assert response.json()["detail"].endswith("destinationId is required.")
+    assert captured == []

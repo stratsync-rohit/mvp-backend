@@ -64,6 +64,98 @@ async def test_same_team_channels_upsert_independently_and_reactivate(async_clie
 
 
 @pytest.mark.asyncio
+async def test_updating_one_channel_preserves_sibling_routing_and_state(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    first = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "CHANNEL-A", "Channel A"),
+    )).json()["destination"]
+    await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "CHANNEL-B", "Channel B"),
+    )
+    before = await mongo_manager.database.teams_channel_destinations.find_one(
+        {"_id": __import__("bson").ObjectId(first["destinationId"])}
+    )
+
+    await async_client.post(
+        "/api/teams/channel-destinations",
+        json={**destination("TENANT-A", "CHANNEL-B", "Renamed B"),
+              "conversationId": "conversation-b-new"},
+    )
+    after = await mongo_manager.database.teams_channel_destinations.find_one(
+        {"_id": before["_id"]}
+    )
+    protected = (
+        "_id", "accountId", "tenantId", "teamId", "channelId",
+        "conversationId", "serviceUrl", "enabled", "connectedAt",
+        "disconnectedAt", "disconnectReason", "disconnectSource", "updatedAt",
+    )
+    assert {field: before.get(field) for field in protected} == {
+        field: after.get(field) for field in protected
+    }
+
+
+@pytest.mark.asyncio
+async def test_channel_scoped_disconnect_does_not_disable_sibling(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    for channel_id in ("CHANNEL-A", "CHANNEL-B"):
+        await async_client.post(
+            "/api/teams/channel-destinations",
+            json=destination("TENANT-A", channel_id, channel_id),
+        )
+    removed = await async_client.post(
+        "/api/teams/installations/disconnect",
+        json={"tenantId": "TENANT-A", "teamId": "team-TENANT-A",
+              "channelId": "CHANNEL-A", "scope": "channel"},
+    )
+    assert removed.status_code == 200
+    assert removed.json()["disconnected"] is True
+    channel_a = await mongo_manager.database.teams_channel_destinations.find_one(
+        {"channelId": "CHANNEL-A"}
+    )
+    channel_b = await mongo_manager.database.teams_channel_destinations.find_one(
+        {"channelId": "CHANNEL-B"}
+    )
+    assert channel_a["enabled"] is False
+    assert channel_a["disconnectReason"] == "channel_removed"
+    assert channel_b["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_multiple_channels_require_destination_id_but_single_channel_falls_back(
+    async_client, sample_risk_payload, monkeypatch
+):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"success": True}
+
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "CHANNEL-A", "Channel A"),
+    )
+    single = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert single.status_code == 200
+    assert captured[-1]["teamsDestination"]["channelId"] == "CHANNEL-A"
+
+    await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "CHANNEL-B", "Channel B"),
+    )
+    ambiguous = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["detail"] == (
+        "Multiple Microsoft Teams channels are connected. destinationId is required."
+    )
+    assert len(captured) == 1
+
+
+@pytest.mark.asyncio
 async def test_safe_lists_are_account_scoped_and_hide_routing_fields(async_client):
     await map_tenant(async_client, "ACC-001", "TENANT-A")
     await map_tenant(async_client, "ACC-002", "TENANT-B")
@@ -160,6 +252,16 @@ async def test_team_uninstall_disables_only_that_teams_destinations(async_client
             "/api/teams/channel-destinations",
             json=destination("TENANT-A", channel_id, name),
         )
+    await async_client.post("/api/teams/installations", json={
+        "tenantId": "TENANT-A", "teamId": "OTHER-TEAM",
+        "channelId": "OTHER-ID", "conversationId": "other-conversation",
+        "serviceUrl": "https://example.test/", "botAppId": "bot",
+    })
+    await async_client.post(
+        "/api/teams/channel-destinations",
+        json={**destination("TENANT-A", "OTHER-ID", "Other"),
+              "teamId": "OTHER-TEAM"},
+    )
     removed = await async_client.post(
         "/api/teams/installations/disconnect",
         json={
@@ -170,8 +272,11 @@ async def test_team_uninstall_disables_only_that_teams_destinations(async_client
     )
     assert removed.status_code == 200
     assert await mongo_manager.database.teams_channel_destinations.count_documents({
-        "accountId": "ACC-001", "enabled": False,
+        "accountId": "ACC-001", "teamId": "team-TENANT-A", "enabled": False,
     }) == 2
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({
+        "accountId": "ACC-001", "teamId": "OTHER-TEAM", "enabled": True,
+    }) == 1
 
 
 @pytest.mark.asyncio

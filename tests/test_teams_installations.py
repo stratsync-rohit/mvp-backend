@@ -106,7 +106,7 @@ async def test_integration_status_connected_and_unknown(async_client):
     connected = await async_client.get("/api/teams/integration/ACC-001")
     assert connected.status_code == 200
     assert connected.json()["connected"] is True
-    assert connected.json()["conversationId"] == "conversation-1"
+    assert connected.json()["conversationId"] is None
     assert connected.json()["accountName"] == "Client A"
     assert connected.json()["channelName"] is None
     assert connected.json()["connectedByName"] is None
@@ -284,6 +284,11 @@ async def test_integration_overview_uses_client_name_and_hides_sensitive_fields(
             "connectedByName": "Installation Actor",
         },
     )
+    await async_client.post("/api/teams/channel-destinations", json={
+        "tenantId": "TENANT-A", "teamId": "team-1", "teamName": "Operations",
+        "channelId": "channel-1", "channelName": "General",
+        "conversationId": "conversation-1", "serviceUrl": "https://example.test/",
+    })
     response = await async_client.get("/api/teams/integrations")
     assert response.status_code == 200
     items = {item["accountId"]: item for item in response.json()}

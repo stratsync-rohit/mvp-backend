@@ -236,6 +236,7 @@ async def list_channel_destinations_internal(
     status_code=status.HTTP_200_OK,
     summary="Create or update a Teams destination",
     description="Upserts the Teams team/channel mapping for a given accountId.",
+    deprecated=True,
 )
 async def upsert_destination(
     accountId: str, payload: TeamDestinationCreate, service: DestinationServiceDep
@@ -249,6 +250,7 @@ async def upsert_destination(
     response_model=TeamDestinationResponse,
     summary="Get a Teams destination",
     description="Fetch the Teams team/channel mapping for a given accountId.",
+    deprecated=True,
 )
 async def get_destination(accountId: str, service: DestinationServiceDep) -> dict:
     result = await service.get_destination(accountId)
@@ -260,6 +262,7 @@ async def get_destination(accountId: str, service: DestinationServiceDep) -> dic
     response_model=list[TeamDestinationResponse],
     summary="List Teams destinations",
     description="List all configured Teams destination mappings.",
+    deprecated=True,
 )
 async def list_destinations(service: DestinationServiceDep) -> list[dict]:
     results = await service.list_destinations()

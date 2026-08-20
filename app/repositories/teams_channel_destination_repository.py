@@ -68,6 +68,14 @@ class TeamsChannelDestinationRepository:
         cursor = self._collection.find({"accountId": account_id}).sort("updatedAt", -1)
         return [item async for item in cursor]
 
+    async def list_active_by_account(self, account_id: str) -> list[dict[str, Any]]:
+        cursor = self._collection.find({
+            "accountId": account_id,
+            "enabled": True,
+            "disconnectedAt": None,
+        }).sort("updatedAt", -1)
+        return [item async for item in cursor]
+
     async def get_by_id(
         self, account_id: str, destination_id: str
     ) -> Optional[dict[str, Any]]:
@@ -90,6 +98,30 @@ class TeamsChannelDestinationRepository:
             },
             {"$set": {
                 "enabled": False, "disconnectReason": "team_uninstalled",
+                "disconnectSource": "microsoft_teams", "disconnectedAt": now,
+                "updatedAt": now,
+            }},
+        )
+        return result.modified_count
+
+    async def disable_by_channel(
+        self,
+        account_id: str,
+        tenant_id: str,
+        team_id: str,
+        channel_id: str,
+    ) -> int:
+        now = datetime.now(timezone.utc)
+        result = await self._collection.update_one(
+            {
+                "accountId": account_id,
+                "tenantId": tenant_id,
+                "teamId": team_id,
+                "channelId": channel_id,
+                "enabled": True,
+            },
+            {"$set": {
+                "enabled": False, "disconnectReason": "channel_removed",
                 "disconnectSource": "microsoft_teams", "disconnectedAt": now,
                 "updatedAt": now,
             }},

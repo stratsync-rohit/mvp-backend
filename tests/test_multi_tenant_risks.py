@@ -20,6 +20,12 @@ async def _map_and_install(async_client, account_id, tenant_id, team_id):
         "tenantId": tenant_id, "teamId": team_id, "channelId": f"channel-{account_id}",
         "conversationId": f"conversation-{account_id}", "serviceUrl": "https://example.test/",
         "botAppId": "bot"})
+    return (await async_client.post("/api/teams/channel-destinations", json={
+        "tenantId": tenant_id, "teamId": team_id,
+        "channelId": f"channel-{account_id}",
+        "conversationId": f"conversation-{account_id}",
+        "serviceUrl": "https://example.test/",
+    })).json()["destination"]
 
 
 @pytest.mark.asyncio

@@ -24,7 +24,6 @@ from app.repositories.idempotency_repository import IdempotencyRepository
 from app.repositories.notification_log_repository import NotificationLogRepository
 from app.services.n8n_service import N8nDeliveryException, N8nService
 from app.services.risk_service import RiskService
-from app.services.teams_installation_service import TeamsInstallationService
 from app.services.teams_channel_destination_service import TeamsChannelDestinationService
 from app.utils.logger import get_logger
 
@@ -37,14 +36,12 @@ class NotificationService:
     def __init__(
         self,
         risk_service: RiskService,
-        installation_service: TeamsInstallationService,
         channel_destination_service: TeamsChannelDestinationService,
         notification_log_repository: NotificationLogRepository,
         idempotency_repository: IdempotencyRepository,
         n8n_service: N8nService,
     ):
         self._risk_service = risk_service
-        self._installation_service = installation_service
         self._channel_destination_service = channel_destination_service
         self._log_repo = notification_log_repository
         self._idempotency_repo = idempotency_repository
@@ -76,19 +73,21 @@ class NotificationService:
                 )
                 return existing["result"]
 
-        # 2. Resolve the active installation captured by the bot.
+        # Channel destinations are the only notification-routing authority.
         if destination_id:
             destination = await self._channel_destination_service.resolve_selected(
                 account_id, destination_id
             )
-        elif installation_id:
-            destination = await self._installation_service.resolve_selected_destination(
-                account_id, installation_id
-            )
         else:
-            destination = await self._installation_service.resolve_active_destination(
-                account_id, risk.get("notificationRoute")
+            if installation_id:
+                logger.warning(
+                    "installationId routing is deprecated; resolving the sole active channel",
+                    extra={"accountId": account_id},
+                )
+            destination = await self._channel_destination_service.resolve_default(
+                account_id
             )
+        resolved_destination_id = str(destination["_id"])
 
         # 4. Build clean notification payload
         notification = await self._risk_service.get_notification_payload(account_id, risk_id)
@@ -119,7 +118,7 @@ class NotificationService:
                 "channelId": destination.get("channelId"),
             },
             "teamsDestination": {
-                "destinationId": destination_id,
+                "destinationId": resolved_destination_id,
                 "tenantId": destination["tenantId"],
                 "teamId": destination.get("teamId"),
                 "channelId": destination.get("channelId"),
@@ -142,10 +141,9 @@ class NotificationService:
             await self._log_repo.mark_failed(event_id, exc.message)
             raise N8nDeliveryError() from exc
 
-        if destination_id:
-            await self._channel_destination_service.record_delivery_result(
-                account_id, destination_id, n8n_response,
-            )
+        await self._channel_destination_service.record_delivery_result(
+            account_id, resolved_destination_id, n8n_response,
+        )
         if n8n_response.get("success") is False:
             await self._log_repo.mark_failed(event_id, "Microsoft Teams delivery failed")
             raise N8nDeliveryError("Unable to deliver Microsoft Teams notification")

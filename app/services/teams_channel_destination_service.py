@@ -6,6 +6,8 @@ from app.exceptions.handlers import (
     MicrosoftTenantNotMappedError,
     TeamsChannelDestinationNotFoundError,
     TeamsInstallationUnavailableError,
+    TeamsInstallationNotConfiguredError,
+    TeamsRouteRequiredError,
 )
 from app.repositories.teams_channel_destination_repository import (
     TeamsChannelDestinationRepository,
@@ -109,6 +111,19 @@ class TeamsChannelDestinationService:
                 raise TeamsChannelDestinationNotFoundError()
         return destination
 
+    async def resolve_default(self, account_id: str) -> dict[str, Any]:
+        """Backward-compatible fallback only when exactly one channel is active."""
+        destinations = await self._repo.list_active_by_account(account_id)
+        if not destinations:
+            raise TeamsInstallationNotConfiguredError()
+        if len(destinations) > 1:
+            raise TeamsRouteRequiredError()
+        destination = destinations[0]
+        required = ("tenantId", "teamId", "channelId", "conversationId", "serviceUrl")
+        if any(not destination.get(field) for field in required):
+            raise TeamsChannelDestinationNotFoundError()
+        return destination
+
     async def remove(self, account_id: str, destination_id: str) -> dict[str, Any]:
         destination = await self._repo.disconnect_manual(account_id, destination_id)
         if not destination:
@@ -152,5 +167,18 @@ class TeamsChannelDestinationService:
                 "accountId": account_id,
                 "tenantId": tenant_id,
                 "teamId": team_id,
+            })
+        return count
+
+    async def disable_channel(
+        self, account_id: str, tenant_id: str, team_id: str, channel_id: str
+    ) -> int:
+        count = await self._repo.disable_by_channel(
+            account_id, tenant_id, team_id, channel_id
+        )
+        if count:
+            logger.info("teams_channel_destination_disabled", extra={
+                "accountId": account_id, "tenantId": tenant_id,
+                "teamId": team_id, "channelId": channel_id,
             })
         return count

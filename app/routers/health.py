@@ -1,4 +1,4 @@
-"""Health check endpoint."""
+
 from fastapi import APIRouter
 
 from app.database import mongo_manager

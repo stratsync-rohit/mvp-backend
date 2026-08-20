@@ -1,9 +1,4 @@
-"""
-FastAPI application entrypoint.
 
-Wires together: lifespan-managed MongoDB connection, CORS, correlation-ID
-middleware, exception handlers, and all routers.
-"""
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI

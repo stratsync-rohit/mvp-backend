@@ -144,9 +144,6 @@ def get_n8n_service() -> N8nService:
 
 def get_notification_service(
     risk_service: Annotated[RiskService, Depends(get_risk_service)],
-    installation_service: Annotated[
-        TeamsInstallationService, Depends(get_teams_installation_service)
-    ],
     channel_destination_service: Annotated[
         TeamsChannelDestinationService,
         Depends(get_teams_channel_destination_service),
@@ -157,7 +154,6 @@ def get_notification_service(
 ) -> NotificationService:
     return NotificationService(
         risk_service=risk_service,
-        installation_service=installation_service,
         channel_destination_service=channel_destination_service,
         notification_log_repository=log_repo,
         idempotency_repository=idempotency_repo,
