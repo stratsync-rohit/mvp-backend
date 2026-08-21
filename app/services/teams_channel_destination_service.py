@@ -84,11 +84,15 @@ class TeamsChannelDestinationService:
                     "resolutionSource": "not_available",
                 })
         previous = await self._repo.get_matching(scoped)
-        if (
-            previous
-            and previous.get("disconnectReason") == "manual_removal"
+        disconnect_reason = previous.get("disconnectReason") if previous else None
+        preserve_disconnected = (
+            disconnect_reason in {"manual_disconnect", "manual_removal"}
             and registration_trigger not in {"explicit_connect", "explicit_reconnect"}
-        ):
+        ) or (
+            disconnect_reason in {"team_uninstalled", "bot_uninstalled"}
+            and registration_trigger != "installation_add"
+        )
+        if previous and preserve_disconnected:
             logger.info("teams_channel_destination_registration_skipped", extra={
                 "accountId": mapping["accountId"],
                 "tenantId": fields["tenantId"],
@@ -96,7 +100,7 @@ class TeamsChannelDestinationService:
                 "channelId": fields["channelId"],
                 "destinationId": str(previous["_id"]),
                 "registrationTrigger": registration_trigger,
-                "reason": "manual_removal",
+                "reason": disconnect_reason,
             })
             return previous
         destination = await self._repo.upsert(scoped)
@@ -146,7 +150,11 @@ class TeamsChannelDestinationService:
         required = ("tenantId", "teamId", "channelId", "conversationId", "serviceUrl")
         if any(not destination.get(field) for field in required):
             raise TeamsChannelDestinationNotFoundError()
-        if destination["conversationId"] != destination["channelId"]:
+        if (
+            destination["conversationId"] != destination["channelId"]
+            and destination.get("conversationResolutionSource")
+            != "microsoft_create_conversation"
+        ):
             raise TeamsChannelDestinationNotFoundError()
         return destination
 
@@ -161,7 +169,11 @@ class TeamsChannelDestinationService:
         required = ("tenantId", "teamId", "channelId", "conversationId", "serviceUrl")
         if any(not destination.get(field) for field in required):
             raise TeamsChannelDestinationNotFoundError()
-        if destination["conversationId"] != destination["channelId"]:
+        if (
+            destination["conversationId"] != destination["channelId"]
+            and destination.get("conversationResolutionSource")
+            != "microsoft_create_conversation"
+        ):
             raise TeamsChannelDestinationNotFoundError()
         return destination
 

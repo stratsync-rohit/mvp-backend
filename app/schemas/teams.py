@@ -73,10 +73,16 @@ class TeamsChannelDestinationCreate(BaseModel):
         "explicit_connect", "installation_add", "channel_created",
         "conversation_update", "explicit_reconnect",
     ] = Field(default="explicit_reconnect", exclude=True)
+    conversationResolutionSource: Literal[
+        "incoming_activity", "microsoft_create_conversation"
+    ] = "incoming_activity"
 
     @model_validator(mode="after")
     def require_channel_conversation_identity(self):
-        if self.conversationId != self.channelId:
+        if (
+            self.conversationId != self.channelId
+            and self.conversationResolutionSource != "microsoft_create_conversation"
+        ):
             raise ValueError("conversationId must identify the selected channel")
         return self
 

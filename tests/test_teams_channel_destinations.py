@@ -177,7 +177,10 @@ async def test_two_teams_four_channels_uninstall_reinstall_and_route_independent
     }) == 2
 
     sales_alerts_payload = destination("TENANT-A", "CHANNEL-SALES-ALERTS", "Alerts")
-    sales_alerts_payload.update({"teamId": "TEAM-SALES", "teamName": "Sales Org"})
+    sales_alerts_payload.update({
+        "teamId": "TEAM-SALES", "teamName": "Sales Org",
+        "registrationTrigger": "installation_add",
+    })
     restored = (await async_client.post(
         "/api/teams/channel-destinations", json=sales_alerts_payload
     )).json()["destination"]
@@ -557,6 +560,19 @@ async def test_reconnect_rejects_team_uninstalled_destination(async_client):
     assert stored["enabled"] is False
     assert stored["disconnectReason"] == "team_uninstalled"
 
+    discovered = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            **destination("TENANT-A", "SALES-ID", "Sales rediscovered"),
+            "conversationId": "microsoft-thread-sales",
+            "conversationResolutionSource": "microsoft_create_conversation",
+            "registrationTrigger": "channel_created",
+        },
+    )).json()["destination"]
+    assert discovered["destinationId"] == created["destinationId"]
+    assert discovered["enabled"] is False
+    assert discovered["disconnectReason"] == "team_uninstalled"
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -765,6 +781,51 @@ async def test_selected_malformed_destination_is_rejected_without_fabrication(as
         {"channelId": "RTEST-ID"}
     )
     assert stored["conversationId"] == "team-TENANT-A"
+
+
+@pytest.mark.asyncio
+async def test_microsoft_resolved_channel_thread_is_independently_routable(
+    async_client, sample_risk_payload, monkeypatch,
+):
+    captured = []
+
+    async def trigger(self, url, payload, event_id):
+        captured.append(payload)
+        return {"success": True}
+
+    monkeypatch.setattr(N8nService, "trigger_webhook", trigger)
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    created = []
+    for channel_id in ("test41-id", "test42-id"):
+        response = await async_client.post(
+            "/api/teams/channel-destinations",
+            json={
+                **destination("TENANT-A", channel_id, channel_id),
+                "conversationId": f"microsoft-thread-for-{channel_id}",
+                "conversationResolutionSource": "microsoft_create_conversation",
+                "registrationTrigger": "channel_created",
+            },
+        )
+        assert response.status_code == 200
+        created.append(response.json()["destination"])
+
+    listed = (await async_client.get(
+        "/api/teams/channel-destinations/ACC-001"
+    )).json()
+    assert {item["destinationId"] for item in listed} == {
+        item["destinationId"] for item in created
+    }
+
+    sent = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"destinationId": created[1]["destinationId"]},
+    )
+    assert sent.status_code == 200
+    assert captured[0]["teamsDestination"]["channelId"] == "test42-id"
+    assert captured[0]["teamsDestination"]["conversationId"] == (
+        "microsoft-thread-for-test42-id"
+    )
 
 
 @pytest.mark.asyncio
