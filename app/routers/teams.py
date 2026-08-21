@@ -16,7 +16,7 @@ from app.schemas.teams import (
     TeamsChannelDestinationCreate,
     TeamsChannelDestinationRegistrationResponse,
     TeamsChannelDestinationResponse,
-    TeamsChannelDestinationDisconnectResponse,
+    TeamsChannelDestinationDeleteResponse,
     TeamsChannelDestinationSummary,
     TeamsInstallationCreate,
     TeamsInstallationDisconnect,
@@ -206,7 +206,7 @@ async def list_channel_destinations(
 
 @router.delete(
     "/channel-destinations/{accountId}/{destinationId}",
-    response_model=TeamsChannelDestinationDisconnectResponse,
+    response_model=TeamsChannelDestinationDeleteResponse,
 )
 async def remove_channel_destination(
     accountId: str, destinationId: str, service: ChannelDestinationServiceDep

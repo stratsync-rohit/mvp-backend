@@ -106,10 +106,10 @@ class TeamsChannelDestinationSummary(BaseModel):
     disconnectedAt: Optional[datetime] = None
 
 
-class TeamsChannelDestinationDisconnectResponse(BaseModel):
+class TeamsChannelDestinationDeleteResponse(BaseModel):
     success: bool
     destinationId: str
-    connected: bool
+    deleted: bool
     message: str
 
 

@@ -112,21 +112,14 @@ class TeamsChannelDestinationRepository:
         )
         return result.modified_count
 
-    async def disconnect_manual(
-        self, account_id: str, destination_id: str
-    ) -> Optional[dict[str, Any]]:
+    async def delete_by_id(self, account_id: str, destination_id: str) -> bool:
+        """Hard-delete exactly one account-scoped destination."""
         if not ObjectId.is_valid(destination_id):
-            return None
-        now = datetime.now(timezone.utc)
-        return await self._collection.find_one_and_update(
-            {"_id": ObjectId(destination_id), "accountId": account_id},
-            {"$set": {
-                "enabled": False, "disconnectReason": "manual_removal",
-                "disconnectSource": "stratsync_ui", "disconnectedAt": now,
-                "updatedAt": now,
-            }},
-            return_document=ReturnDocument.AFTER,
+            return False
+        result = await self._collection.delete_one(
+            {"_id": ObjectId(destination_id), "accountId": account_id}
         )
+        return result.deleted_count == 1
 
     async def record_delivery_result(
         self,

@@ -165,15 +165,15 @@ class TeamsChannelDestinationService:
         return destination
 
     async def remove(self, account_id: str, destination_id: str) -> dict[str, Any]:
-        destination = await self._repo.disconnect_manual(account_id, destination_id)
-        if not destination:
+        deleted = await self._repo.delete_by_id(account_id, destination_id)
+        if not deleted:
             raise TeamsChannelDestinationNotFoundError()
-        logger.info("teams_destination_manually_removed", extra={
+        logger.info("teams_channel_destination_deleted", extra={
             "accountId": account_id, "destinationId": destination_id,
         })
         return {
             "success": True, "destinationId": destination_id,
-            "connected": False, "message": "Teams channel removed successfully",
+            "deleted": True, "message": "Teams channel removed successfully",
         }
 
     async def record_delivery_result(
