@@ -829,6 +829,40 @@ async def test_microsoft_resolved_channel_thread_is_independently_routable(
 
 
 @pytest.mark.asyncio
+async def test_unnamed_team_identity_is_rejected_as_channel_destination(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    malformed = await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            "tenantId": "TENANT-A",
+            "teamId": "TEAM-A",
+            "teamName": "f-test",
+            "channelId": "TEAM-A",
+            "conversationId": "TEAM-A",
+            "serviceUrl": "https://example.test/",
+            "conversationResolutionSource": "incoming_activity",
+        },
+    )
+    assert malformed.status_code == 422
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({}) == 0
+
+    general = await async_client.post(
+        "/api/teams/channel-destinations",
+        json={
+            "tenantId": "TENANT-A",
+            "teamId": "TEAM-A",
+            "teamName": "f-test",
+            "channelId": "TEAM-A",
+            "channelName": "General",
+            "conversationId": "TEAM-A",
+            "serviceUrl": "https://example.test/",
+            "conversationResolutionSource": "incoming_activity",
+        },
+    )
+    assert general.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_repair_script_dry_run_apply_scope_and_idempotency(async_client):
     await map_tenant(async_client, "ACC-001", "TENANT-A")
     await map_tenant(async_client, "ACC-002", "TENANT-B")

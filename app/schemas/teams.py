@@ -80,6 +80,14 @@ class TeamsChannelDestinationCreate(BaseModel):
     @model_validator(mode="after")
     def require_channel_conversation_identity(self):
         if (
+            self.channelId == self.teamId
+            and not self.channelName
+            and self.conversationResolutionSource == "incoming_activity"
+        ):
+            raise ValueError(
+                "channelId equal to teamId requires explicit channel metadata"
+            )
+        if (
             self.conversationId != self.channelId
             and self.conversationResolutionSource != "microsoft_create_conversation"
         ):
