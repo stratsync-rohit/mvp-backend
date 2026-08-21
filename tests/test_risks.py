@@ -114,10 +114,10 @@ async def _install_teams(async_client):
         "tenantId": "tenant-1", "clientName": "Client A", "enabled": True})
     await async_client.post("/api/teams/installations", json={
         "tenantId": "tenant-1", "teamId": "team", "channelId": "channel",
-        "conversationId": "conversation", "serviceUrl": "https://example.test/", "botAppId": "bot"})
+        "conversationId": "channel", "serviceUrl": "https://example.test/", "botAppId": "bot"})
     return (await async_client.post("/api/teams/channel-destinations", json={
         "tenantId": "tenant-1", "teamId": "team", "channelId": "channel",
-        "conversationId": "conversation", "serviceUrl": "https://example.test/",
+        "conversationId": "channel", "serviceUrl": "https://example.test/",
         "teamName": "Team", "channelName": "Channel",
     })).json()["destination"]
 
@@ -161,6 +161,37 @@ async def test_send_to_teams_rejects_inactive_installation(async_client, sample_
 
 
 @pytest.mark.asyncio
+async def test_manual_disconnect_blocks_send_and_reconnect_restores_same_destination(
+    async_client, sample_risk_payload, mock_n8n_success,
+):
+    await async_client.post("/api/risks", json=sample_risk_payload)
+    destination = await _install_teams(async_client)
+    destination_id = destination["destinationId"]
+
+    disconnected = await async_client.post(
+        f"/api/teams/channel-destinations/ACC-001/{destination_id}/disconnect"
+    )
+    assert disconnected.status_code == 200
+    blocked = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"destinationId": destination_id},
+    )
+    assert blocked.status_code == 409
+
+    reconnected = await async_client.post(
+        f"/api/teams/channel-destinations/ACC-001/{destination_id}/reconnect"
+    )
+    assert reconnected.status_code == 200
+    assert reconnected.json()["destinationId"] == destination_id
+    sent = await async_client.post(
+        "/api/risks/RSK-OP-0821/send-to-teams",
+        json={"destinationId": destination_id},
+    )
+    assert sent.status_code == 200
+    assert sent.json()["success"] is True
+
+
+@pytest.mark.asyncio
 async def test_multiple_installations_without_route_is_controlled(
     async_client, sample_risk_payload, mock_n8n_success
 ):
@@ -168,11 +199,11 @@ async def test_multiple_installations_without_route_is_controlled(
     await _install_teams(async_client)
     await async_client.post("/api/teams/installations", json={
         "tenantId": "tenant-1", "teamId": "team-2", "channelId": "channel-2",
-        "conversationId": "conversation-2", "serviceUrl": "https://example.test/", "botAppId": "bot",
+        "conversationId": "channel-2", "serviceUrl": "https://example.test/", "botAppId": "bot",
     })
     await async_client.post("/api/teams/channel-destinations", json={
         "tenantId": "tenant-1", "teamId": "team-2", "channelId": "channel-2",
-        "conversationId": "conversation-2", "serviceUrl": "https://example.test/",
+        "conversationId": "channel-2", "serviceUrl": "https://example.test/",
     })
     response = await async_client.post("/api/risks/RSK-OP-0821/send-to-teams")
     assert response.status_code == 409
@@ -201,7 +232,7 @@ async def test_legacy_notification_route_never_selects_a_channel(
             "/api/teams/channel-destinations", json={
                 "tenantId": "tenant-1", "teamId": f"team-{suffix}",
                 "channelId": f"channel-{suffix}",
-                "conversationId": f"conversation-{suffix}",
+                "conversationId": f"channel-{suffix}",
                 "serviceUrl": "https://example.test/",
             }
         )).json()["destination"])
@@ -245,7 +276,7 @@ async def test_deprecated_installation_id_does_not_bypass_channel_ambiguity(
     for channel in ("sales-channel", "dev-channel"):
         await async_client.post("/api/teams/channel-destinations", json={
             "tenantId": "tenant-a", "teamId": f"team-{channel}",
-            "channelId": channel, "conversationId": f"conversation-{channel}",
+            "channelId": channel, "conversationId": channel,
             "serviceUrl": "https://example.test/",
         })
     response = await async_client.post(

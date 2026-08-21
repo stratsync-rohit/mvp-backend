@@ -112,14 +112,53 @@ class TeamsChannelDestinationRepository:
         )
         return result.modified_count
 
-    async def delete_by_id(self, account_id: str, destination_id: str) -> bool:
-        """Hard-delete exactly one account-scoped destination."""
+    async def disconnect_manual(
+        self, account_id: str, destination_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Soft-disable exactly one account-scoped destination from StratSync."""
         if not ObjectId.is_valid(destination_id):
-            return False
-        result = await self._collection.delete_one(
-            {"_id": ObjectId(destination_id), "accountId": account_id}
+            return None
+        now = datetime.now(timezone.utc)
+        return await self._collection.find_one_and_update(
+            {
+                "_id": ObjectId(destination_id),
+                "accountId": account_id,
+                "enabled": True,
+                "disconnectedAt": None,
+            },
+            {"$set": {
+                "enabled": False,
+                "disconnectReason": "manual_disconnect",
+                "disconnectSource": "stratsync_ui",
+                "disconnectedAt": now,
+                "updatedAt": now,
+            }},
+            return_document=ReturnDocument.AFTER,
         )
-        return result.deleted_count == 1
+
+    async def reconnect_manual(
+        self, account_id: str, destination_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Reactivate only an account-scoped manual disconnect, including legacy ones."""
+        if not ObjectId.is_valid(destination_id):
+            return None
+        now = datetime.now(timezone.utc)
+        return await self._collection.find_one_and_update(
+            {
+                "_id": ObjectId(destination_id),
+                "accountId": account_id,
+                "disconnectReason": {"$in": ["manual_disconnect", "manual_removal"]},
+            },
+            {"$set": {
+                "enabled": True,
+                "disconnectReason": None,
+                "disconnectSource": None,
+                "disconnectedAt": None,
+                "connectedAt": now,
+                "updatedAt": now,
+            }},
+            return_document=ReturnDocument.AFTER,
+        )
 
     async def record_delivery_result(
         self,

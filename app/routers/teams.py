@@ -16,7 +16,7 @@ from app.schemas.teams import (
     TeamsChannelDestinationCreate,
     TeamsChannelDestinationRegistrationResponse,
     TeamsChannelDestinationResponse,
-    TeamsChannelDestinationDeleteResponse,
+    TeamsChannelDestinationMutationResponse,
     TeamsChannelDestinationSummary,
     TeamsInstallationCreate,
     TeamsInstallationDisconnect,
@@ -204,16 +204,26 @@ async def list_channel_destinations(
     return await service.list_safe_by_account(accountId)
 
 
-@router.delete(
-    "/channel-destinations/{accountId}/{destinationId}",
-    response_model=TeamsChannelDestinationDeleteResponse,
+@router.post(
+    "/channel-destinations/{accountId}/{destinationId}/disconnect",
+    response_model=TeamsChannelDestinationMutationResponse,
 )
-async def remove_channel_destination(
+async def disconnect_channel_destination(
     accountId: str, destinationId: str, service: ChannelDestinationServiceDep
 ) -> dict:
-    # This browser-facing MVP route follows the same selected-account convention
-    # as the safe list route. The repository always scopes by both identifiers.
-    return await service.remove(accountId, destinationId)
+    result = await service.disconnect(accountId, destinationId)
+    return {**result, "destination": serialize_channel_destination(result["destination"])}
+
+
+@router.post(
+    "/channel-destinations/{accountId}/{destinationId}/reconnect",
+    response_model=TeamsChannelDestinationMutationResponse,
+)
+async def reconnect_channel_destination(
+    accountId: str, destinationId: str, service: ChannelDestinationServiceDep
+) -> dict:
+    result = await service.reconnect(accountId, destinationId)
+    return {**result, "destination": serialize_channel_destination(result["destination"])}
 
 
 @router.get(

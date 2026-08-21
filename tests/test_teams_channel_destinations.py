@@ -414,7 +414,7 @@ async def test_team_uninstall_disables_only_that_teams_destinations(async_client
 
 
 @pytest.mark.asyncio
-async def test_manual_remove_hard_deletes_exact_destination_and_reconnects_fresh(
+async def test_manual_disconnect_and_reconnect_preserve_exact_destination(
     async_client,
 ):
     await map_tenant(async_client, "ACC-001", "TENANT-A")
@@ -437,24 +437,23 @@ async def test_manual_remove_hard_deletes_exact_destination_and_reconnects_fresh
         json=destination("TENANT-B", "FINANCE-ID", "Finance"),
     )).json()["destination"]
 
-    cross_account = await async_client.delete(
-        f"/api/teams/channel-destinations/ACC-002/{first['destinationId']}"
+    cross_account = await async_client.post(
+        f"/api/teams/channel-destinations/ACC-002/{first['destinationId']}/disconnect"
     )
     assert cross_account.status_code == 404
 
-    removed = await async_client.delete(
-        f"/api/teams/channel-destinations/ACC-001/{first['destinationId']}"
+    removed = await async_client.post(
+        f"/api/teams/channel-destinations/ACC-001/{first['destinationId']}/disconnect"
     )
     assert removed.status_code == 200
-    assert removed.json() == {
-        "success": True, "destinationId": first["destinationId"],
-        "deleted": True, "message": "Teams channel removed successfully",
-    }
+    assert removed.json()["destinationId"] == first["destinationId"]
     document = await mongo_manager.database.teams_channel_destinations.find_one(
         {"_id": __import__("bson").ObjectId(first["destinationId"])}
     )
-    assert document is None
-    assert await mongo_manager.database.teams_channel_destinations.count_documents({}) == 3
+    assert document["enabled"] is False
+    assert document["disconnectReason"] == "manual_disconnect"
+    assert document["disconnectedAt"] is not None
+    assert await mongo_manager.database.teams_channel_destinations.count_documents({}) == 4
     assert (await mongo_manager.database.teams_channel_destinations.find_one(
         {"_id": __import__("bson").ObjectId(sibling["destinationId"])}
     ))["enabled"] is True
@@ -465,36 +464,34 @@ async def test_manual_remove_hard_deletes_exact_destination_and_reconnects_fresh
         {"_id": __import__("bson").ObjectId(other_account["destinationId"])}
     ))["enabled"] is True
 
-    repeated = await async_client.delete(
-        f"/api/teams/channel-destinations/ACC-001/{first['destinationId']}"
-    )
-    assert repeated.status_code == 404
-    assert (await async_client.delete(
-        "/api/teams/channel-destinations/ACC-001/not-an-object-id"
+    assert (await async_client.post(
+        "/api/teams/channel-destinations/ACC-001/not-an-object-id/disconnect"
     )).status_code == 404
 
     safe = (await async_client.get(
         "/api/teams/channel-destinations/ACC-001"
     )).json()
-    assert first["destinationId"] not in {item["destinationId"] for item in safe}
+    summary = next(item for item in safe if item["destinationId"] == first["destinationId"])
+    assert summary["connected"] is False
+    assert summary["disconnectReason"] == "manual_disconnect"
     internal = (await async_client.get(
         "/api/teams/channel-destinations-internal/ACC-001"
     )).json()
-    assert first["destinationId"] not in {
+    assert first["destinationId"] in {
         item["destinationId"] for item in internal
     }
 
     reactivated = (await async_client.post(
-        "/api/teams/channel-destinations",
-        json=destination("TENANT-A", "SALES-ID", "Sales restored"),
+        f"/api/teams/channel-destinations/ACC-001/{first['destinationId']}/reconnect"
     )).json()["destination"]
-    assert reactivated["destinationId"] != first["destinationId"]
+    assert reactivated["destinationId"] == first["destinationId"]
     assert reactivated["enabled"] is True
     assert reactivated["disconnectedAt"] is None
     stored = await mongo_manager.database.teams_channel_destinations.find_one(
         {"_id": __import__("bson").ObjectId(reactivated["destinationId"])}
     )
     assert stored["disconnectReason"] is None
+    assert stored["disconnectedAt"] is None
     assert await mongo_manager.database.teams_channel_destinations.count_documents({}) == 4
 
 
@@ -528,6 +525,37 @@ async def test_automatic_retry_does_not_reactivate_manual_removal(async_client):
     assert retried["enabled"] is False
     assert retried["disconnectReason"] == "manual_removal"
     assert await mongo_manager.database.teams_channel_destinations.count_documents({}) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_rejects_team_uninstalled_destination(async_client):
+    await map_tenant(async_client, "ACC-001", "TENANT-A")
+    created = (await async_client.post(
+        "/api/teams/channel-destinations",
+        json=destination("TENANT-A", "SALES-ID", "Sales"),
+    )).json()["destination"]
+    await mongo_manager.database.teams_channel_destinations.update_one(
+        {"_id": __import__("bson").ObjectId(created["destinationId"])},
+        {"$set": {
+            "enabled": False,
+            "disconnectReason": "team_uninstalled",
+            "disconnectedAt": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ),
+        }},
+    )
+
+    response = await async_client.post(
+        f"/api/teams/channel-destinations/ACC-001/{created['destinationId']}/reconnect"
+    )
+
+    assert response.status_code == 409
+    assert "Reinstall" in response.json()["detail"]
+    stored = await mongo_manager.database.teams_channel_destinations.find_one(
+        {"_id": __import__("bson").ObjectId(created["destinationId"])}
+    )
+    assert stored["enabled"] is False
+    assert stored["disconnectReason"] == "team_uninstalled"
 
 
 @pytest.mark.asyncio

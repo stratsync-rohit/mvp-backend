@@ -5,6 +5,7 @@ from app.exceptions.handlers import (
     MicrosoftTenantMappingDisabledError,
     MicrosoftTenantNotMappedError,
     TeamsChannelDestinationNotFoundError,
+    TeamsChannelDestinationReconnectConflictError,
     TeamsInstallationUnavailableError,
     TeamsInstallationNotConfiguredError,
     TeamsRouteRequiredError,
@@ -164,16 +165,40 @@ class TeamsChannelDestinationService:
             raise TeamsChannelDestinationNotFoundError()
         return destination
 
-    async def remove(self, account_id: str, destination_id: str) -> dict[str, Any]:
-        deleted = await self._repo.delete_by_id(account_id, destination_id)
-        if not deleted:
+    async def disconnect(self, account_id: str, destination_id: str) -> dict[str, Any]:
+        existing = await self._repo.get_by_id(account_id, destination_id)
+        if not existing:
             raise TeamsChannelDestinationNotFoundError()
-        logger.info("teams_channel_destination_deleted", extra={
+        destination = await self._repo.disconnect_manual(account_id, destination_id)
+        if not destination:
+            raise TeamsInstallationUnavailableError()
+        logger.info("teams_channel_destination_disconnected", extra={
             "accountId": account_id, "destinationId": destination_id,
+            "teamId": destination.get("teamId"),
+            "channelId": destination.get("channelId"),
         })
         return {
             "success": True, "destinationId": destination_id,
-            "deleted": True, "message": "Teams channel removed successfully",
+            "destination": destination,
+            "message": "Teams channel disconnected successfully",
+        }
+
+    async def reconnect(self, account_id: str, destination_id: str) -> dict[str, Any]:
+        existing = await self._repo.get_by_id(account_id, destination_id)
+        if not existing:
+            raise TeamsChannelDestinationNotFoundError()
+        destination = await self._repo.reconnect_manual(account_id, destination_id)
+        if not destination:
+            raise TeamsChannelDestinationReconnectConflictError()
+        logger.info("teams_channel_destination_reconnected", extra={
+            "accountId": account_id, "destinationId": destination_id,
+            "teamId": destination.get("teamId"),
+            "channelId": destination.get("channelId"),
+        })
+        return {
+            "success": True, "destinationId": destination_id,
+            "destination": destination,
+            "message": "Teams channel reconnected successfully",
         }
 
     async def record_delivery_result(

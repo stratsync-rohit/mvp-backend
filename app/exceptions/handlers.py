@@ -97,6 +97,14 @@ class TeamsChannelDestinationNotFoundError(AppError):
         )
 
 
+class TeamsChannelDestinationReconnectConflictError(AppError):
+    def __init__(self):
+        super().__init__(
+            "Only a destination manually disconnected in StratSync can be reconnected. Reinstall the StratSync app in Microsoft Teams if it was removed.",
+            status.HTTP_409_CONFLICT,
+        )
+
+
 class MicrosoftTenantNotMappedError(AppError):
     def __init__(self):
         super().__init__(
